@@ -1,0 +1,53 @@
+# Systemd service file for Deen Bridge Backend
+# Copy this file to /etc/systemd/system/deenbridge.service
+# Remember to update the paths and user/group before using
+
+[Unit]
+Description=Deen Bridge Backend - Islamic Learning Platform
+Documentation=https://github.com/yourorg/deenbridge
+After=network.target postgresql.service redis.service
+Wants=postgresql.service redis.service
+
+[Service]
+Type=notify
+User=www-data
+Group=www-data
+
+# Working directory
+WorkingDirectory=/var/www/deenbridge/backend
+
+# Environment
+Environment="PATH=/var/www/deenbridge/backend/venv/bin"
+Environment="DJANGO_SETTINGS_MODULE=backend.settings.production"
+EnvironmentFile=/var/www/deenbridge/backend/.env
+
+# Gunicorn command
+ExecStart=/var/www/deenbridge/backend/venv/bin/gunicorn \
+    -c gunicorn_config.py \
+    backend.asgi:application
+
+# Reload gracefully
+ExecReload=/bin/kill -s HUP $MAINPID
+
+# Process management
+KillMode=mixed
+KillSignal=SIGTERM
+TimeoutStopSec=30
+Restart=always
+RestartSec=10
+
+# Security
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/www/deenbridge/backend/media /var/www/deenbridge/backend/logs
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=deenbridge
+
+[Install]
+WantedBy=multi-user.target
+

@@ -1,0 +1,100 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+.venv
+*.pyc
+
+# Django
+*.log
+logs/
+db.sqlite3
+db.sqlite3-journal
+/media
+/staticfiles
+*.sqlite3
+*.sql
+
+*.pot
+
+# Environment variables
+.env
+.env.local
+.env.production
+.env.staging
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# OS
+Thumbs.db
+desktop.ini
+
+# Backup files
+*.bak
+*.backup
+*.orig
+
+# Coverage and testing
+.coverage
+.coverage.*
+htmlcov/
+.pytest_cache/
+.tox/
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Security
+*.pem
+*.key
+*.cert
+*.crt
+
+# Gunicorn
+gunicorn.pid
+gunicorn.log
+
+# Celery (if you add it later)
+celerybeat-schedule
+celerybeat.pid
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Keep these startup scripts
+!start-development.ps1
+!start-development-with-channels.ps1
+!START_BACKEND.ps1
+!start-with-daphne.ps1
