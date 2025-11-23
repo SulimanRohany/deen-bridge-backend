@@ -14,7 +14,7 @@ env = environ.Env(
     SECRET_KEY=(str, 'django-insecure-CHANGE-THIS-IN-PRODUCTION'),
     ALLOWED_HOSTS=(list, []),
     DATABASE_URL=(str, ''),
-    REDIS_URL=(str, 'redis://127.0.0.1:6379/0'),
+    REDIS_URL=(str, ''),  # Empty by default - uses InMemoryChannelLayer. Set to 'redis://127.0.0.1:6379/0' to use Redis
     BACKEND_URL=(str, 'http://localhost:8000'),
     CORS_ALLOWED_ORIGINS=(list, []),
 )
@@ -90,7 +90,6 @@ REST_FRAMEWORK = {
         'anon': '100/hour',
         'user': '1000/hour',
     },
-    'EXCEPTION_HANDLER': 'core.exceptions.custom_exception_handler',
 }
 
 MIDDLEWARE = [
@@ -98,13 +97,11 @@ MIDDLEWARE = [
     'django.contrib.sessions.middleware.SessionMiddleware',
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.common.CommonMiddleware',
+    'core.middleware.DisableCSRFForAPI',  # Disable CSRF for API endpoints (before CSRF middleware)
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
-    # Custom middleware
-    'core.middleware.ErrorHandlerMiddleware',
-    'core.middleware.RequestLoggingMiddleware',
 ]
 
 ROOT_URLCONF = 'backend.urls'
@@ -227,22 +224,48 @@ SIMPLE_JWT = {
 
 # Channels Configuration
 # Default to InMemory for development, Redis for production
-REDIS_URL_VALUE = env('REDIS_URL')
-if REDIS_URL_VALUE and 'redis://' in REDIS_URL_VALUE:
-    CHANNEL_LAYERS = {
-        'default': {
-            'BACKEND': 'channels_redis.core.RedisChannelLayer',
-            'CONFIG': {
-                "hosts": [REDIS_URL_VALUE],
+# Set REDIS_URL='' or don't set it to use InMemoryChannelLayer (development only)
+# Set REDIS_URL='redis://127.0.0.1:6379/0' to use Redis (production)
+REDIS_URL_VALUE = env('REDIS_URL', default='')
+USE_REDIS = REDIS_URL_VALUE and REDIS_URL_VALUE.strip() and 'redis://' in REDIS_URL_VALUE
+
+if USE_REDIS:
+    # Parse Redis URL to extract host and port
+    try:
+        from urllib.parse import urlparse
+        parsed = urlparse(REDIS_URL_VALUE)
+        redis_host = parsed.hostname or '127.0.0.1'
+        redis_port = parsed.port or 6379
+        redis_db = int(parsed.path.lstrip('/')) if parsed.path else 0
+        
+        CHANNEL_LAYERS = {
+            'default': {
+                'BACKEND': 'channels_redis.core.RedisChannelLayer',
+                'CONFIG': {
+                    "hosts": [(redis_host, redis_port)],
+                    "channel_capacity": {
+                        "http.request": 200,
+                        "http.response!*": 10,
+                        "websocket.send": 20,
+                    },
+                },
             },
-        },
-    }
+        }
+        print(f"✅ Using Redis Channel Layer: {redis_host}:{redis_port} (db: {redis_db})")
+    except Exception as e:
+        print(f"⚠️ Error parsing REDIS_URL, falling back to InMemoryChannelLayer: {e}")
+        CHANNEL_LAYERS = {
+            'default': {
+                'BACKEND': 'channels.layers.InMemoryChannelLayer',
+            },
+        }
 else:
     CHANNEL_LAYERS = {
         'default': {
             'BACKEND': 'channels.layers.InMemoryChannelLayer',
         },
     }
+    print("✅ Using InMemoryChannelLayer (Redis not configured or disabled)")
 
 # CORS Settings (will be overridden in production)
 CORS_ALLOW_ALL_ORIGINS = DEBUG
@@ -257,6 +280,12 @@ CORS_ALLOWED_ORIGINS = env.list('CORS_ALLOWED_ORIGINS', default=[
     "http://localhost:3005",
     "http://localhost:3001",
 ])
+
+# CSRF Settings - Exempt API endpoints from CSRF (they use JWT authentication)
+CSRF_TRUSTED_ORIGINS = env.list('CSRF_TRUSTED_ORIGINS', default=CORS_ALLOWED_ORIGINS)
+# Exempt API endpoints from CSRF protection since they use JWT
+CSRF_COOKIE_SECURE = False  # Set to True in production with HTTPS
+CSRF_USE_SESSIONS = False
 
 # WebSocket CORS settings
 CORS_ALLOW_HEADERS = [

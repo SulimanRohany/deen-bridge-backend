@@ -12,6 +12,12 @@ class ChatConsumer(AsyncWebsocketConsumer):
 
     async def connect(self):
         """Handle WebSocket connection."""
+        # Initialize attributes early to prevent AttributeError
+        self.session_id = None
+        self.room_group_name = None
+        self.user = None
+        self.is_fully_connected = False  # Track if connection is fully established (room group joined)
+        
         try:
             print(f"🔍 Chat connection attempt started")
             
@@ -35,13 +41,47 @@ class ChatConsumer(AsyncWebsocketConsumer):
             
             print(f"✅ Chat WebSocket connection for session: {self.session_id}, user: {self.user.email}")
             
-            # Join room group
-            await self.channel_layer.group_add(
-                self.room_group_name,
-                self.channel_name
-            )
-            
+            # Accept connection first (before joining group)
             await self.accept()
+            
+            # Join room group (after accepting connection)
+            try:
+                await self.channel_layer.group_add(
+                    self.room_group_name,
+                    self.channel_name
+                )
+                print(f"✅ Successfully joined room group: {self.room_group_name}")
+                self.is_fully_connected = True  # Mark as fully connected
+            except Exception as e:
+                error_msg = str(e)
+                print(f"❌ Error joining room group: {error_msg}")
+                
+                # Check if it's a Redis connection error
+                if '6379' in error_msg or 'redis' in error_msg.lower() or '10061' in error_msg or 'ConnectionRefusedError' in error_msg:
+                    print(f"   ⚠️ Redis is not running. Please start Redis server:")
+                    print(f"      Windows: Download from https://github.com/microsoftarchive/redis/releases")
+                    print(f"      Or use Docker: docker run -d -p 6379:6379 redis:alpine")
+                    print(f"      Or set REDIS_URL='' in .env to use InMemoryChannelLayer (development only)")
+                    # Send error message to client before closing
+                    try:
+                        await self.send(text_data=json.dumps({
+                            'type': 'error',
+                            'message': 'Chat service unavailable. Redis server is not running.',
+                        }))
+                    except:
+                        pass
+                else:
+                    # Send generic error
+                    try:
+                        await self.send(text_data=json.dumps({
+                            'type': 'error',
+                            'message': 'Failed to join chat room.',
+                        }))
+                    except:
+                        pass
+                
+                await self.close(code=4002)
+                return
             
             # Send connection success message
             await self.send(text_data=json.dumps({
@@ -50,20 +90,33 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 'session_id': self.session_id,
             }))
             
-            # Notify others that user joined
-            await self.channel_layer.group_send(
-                self.room_group_name,
-                {
-                    'type': 'user_joined',
-                    'user_id': self.user.id,
-                    'user_name': self.user.full_name if hasattr(self.user, 'full_name') and self.user.full_name else self.user.email,
-                }
-            )
+            # Notify others that user joined (only if we successfully joined the room)
+            try:
+                await self.channel_layer.group_send(
+                    self.room_group_name,
+                    {
+                        'type': 'user_joined',
+                        'user_id': self.user.id,
+                        'user_name': self.user.full_name if hasattr(self.user, 'full_name') and self.user.full_name else self.user.email,
+                    }
+                )
+            except Exception as e:
+                print(f"⚠️ Error sending user_joined notification: {e}")
+                # Don't fail the connection if this fails
             
             print(f"✅ Chat WebSocket connection established successfully")
             
         except Exception as e:
-            print(f"❌ Error in chat connect: {e}")
+            error_msg = str(e)
+            print(f"❌ Error in chat connect: {error_msg}")
+            
+            # Check if it's a Redis connection error
+            if '6379' in error_msg or 'redis' in error_msg.lower() or '10061' in error_msg:
+                print("⚠️ Redis connection failed. Please start Redis server:")
+                print("   Windows: Download and run Redis from https://github.com/microsoftarchive/redis/releases")
+                print("   Or use: docker run -d -p 6379:6379 redis:alpine")
+                print("   Or set REDIS_URL='' in .env to use InMemoryChannelLayer (development only)")
+            
             import traceback
             traceback.print_exc()
             try:
@@ -73,29 +126,54 @@ class ChatConsumer(AsyncWebsocketConsumer):
 
     async def disconnect(self, close_code):
         """Handle WebSocket disconnection."""
-        print(f"💬 Chat WebSocket disconnected for session: {self.session_id}, code: {close_code}")
+        session_id = getattr(self, 'session_id', 'unknown')
+        print(f"💬 Chat WebSocket disconnected for session: {session_id}, code: {close_code}")
         
-        # Notify others that user left
-        if hasattr(self, 'user') and self.user and self.user.is_authenticated:
-            await self.channel_layer.group_send(
-                self.room_group_name,
-                {
-                    'type': 'user_left',
-                    'user_id': self.user.id,
-                    'user_name': self.user.full_name if hasattr(self.user, 'full_name') and self.user.full_name else self.user.email,
-                }
-            )
+        # Notify others that user left (only if we successfully connected)
+        if hasattr(self, 'user') and self.user and self.user.is_authenticated and hasattr(self, 'room_group_name'):
+            try:
+                await self.channel_layer.group_send(
+                    self.room_group_name,
+                    {
+                        'type': 'user_left',
+                        'user_id': self.user.id,
+                        'user_name': self.user.full_name if hasattr(self.user, 'full_name') and self.user.full_name else self.user.email,
+                    }
+                )
+            except Exception as e:
+                print(f"⚠️ Error sending user_left notification: {e}")
         
-        # Leave room group
-        if hasattr(self, 'room_group_name'):
-            await self.channel_layer.group_discard(
-                self.room_group_name,
-                self.channel_name
-            )
+        # Leave room group (only if we successfully joined)
+        if hasattr(self, 'room_group_name') and hasattr(self, 'channel_name'):
+            try:
+                await self.channel_layer.group_discard(
+                    self.room_group_name,
+                    self.channel_name
+                )
+            except Exception as e:
+                print(f"⚠️ Error leaving room group: {e}")
 
     async def receive(self, text_data):
         """Handle incoming WebSocket messages."""
         try:
+            # Check if connection is fully established
+            if not hasattr(self, 'is_fully_connected') or not self.is_fully_connected:
+                print(f"❌ Received message but connection is not fully established.")
+                await self.send(text_data=json.dumps({
+                    'type': 'error',
+                    'message': 'Connection not fully established. Please reconnect. (Redis may not be running)',
+                }))
+                return
+            
+            # Check if user is set (connection might have failed)
+            if not hasattr(self, 'user') or not self.user:
+                print(f"❌ Received message but user is not set. Connection may have failed.")
+                await self.send(text_data=json.dumps({
+                    'type': 'error',
+                    'message': 'Connection not properly established. Please reconnect.',
+                }))
+                return
+            
             data = json.loads(text_data)
             message_type = data.get('type')
             
@@ -112,6 +190,15 @@ class ChatConsumer(AsyncWebsocketConsumer):
                     }))
                     return
                 
+                # Check if room group is set
+                if not hasattr(self, 'room_group_name') or not self.room_group_name:
+                    print(f"❌ Cannot send message: room_group_name not set")
+                    await self.send(text_data=json.dumps({
+                        'type': 'error',
+                        'message': 'Connection not fully established. Please reconnect.',
+                    }))
+                    return
+                
                 # Save message to database
                 chat_message = await self.save_message(
                     session_id=self.session_id,
@@ -121,28 +208,49 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 )
                 
                 # Broadcast message to all users in the room
-                await self.channel_layer.group_send(
-                    self.room_group_name,
-                    {
-                        'type': 'chat_message_broadcast',
-                        'message': await self.message_to_dict(chat_message),
-                        'sender_id': self.user.id,  # Include sender ID for filtering
-                    }
-                )
+                try:
+                    await self.channel_layer.group_send(
+                        self.room_group_name,
+                        {
+                            'type': 'chat_message_broadcast',
+                            'message': await self.message_to_dict(chat_message),
+                            'sender_id': self.user.id,  # Include sender ID for filtering
+                        }
+                    )
+                except Exception as e:
+                    error_msg = str(e)
+                    print(f"❌ Error broadcasting message: {error_msg}")
+                    
+                    # Check if it's a Redis error
+                    if '6379' in error_msg or 'redis' in error_msg.lower() or '10061' in error_msg or 'ConnectionRefusedError' in error_msg:
+                        error_message = 'Failed to send message. Redis server is not running. Please start Redis and reconnect.'
+                    else:
+                        error_message = 'Failed to send message. Please try again.'
+                    
+                    # Send error back to sender
+                    await self.send(text_data=json.dumps({
+                        'type': 'error',
+                        'message': error_message,
+                    }))
+                    return
             
             elif message_type == 'typing':
                 # Handle typing indicator
                 is_typing = data.get('is_typing', False)
                 
-                await self.channel_layer.group_send(
-                    self.room_group_name,
-                    {
-                        'type': 'user_typing',
-                        'user_id': self.user.id,
-                        'user_name': self.user.full_name if hasattr(self.user, 'full_name') and self.user.full_name else self.user.email,
-                        'is_typing': is_typing,
-                    }
-                )
+                try:
+                    await self.channel_layer.group_send(
+                        self.room_group_name,
+                        {
+                            'type': 'user_typing',
+                            'user_id': self.user.id,
+                            'user_name': self.user.full_name if hasattr(self.user, 'full_name') and self.user.full_name else self.user.email,
+                            'is_typing': is_typing,
+                        }
+                    )
+                except Exception as e:
+                    print(f"⚠️ Error sending typing indicator: {e}")
+                    # Don't fail - typing indicator is not critical
             
             elif message_type == 'get_history':
                 # Send chat history to the requesting user

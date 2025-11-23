@@ -47,3 +47,4 @@ sentry-sdk>=2.10.0,<3.0.0
 
 # Development dependencies (install with: pip install -r requirements-dev.txt)
 # See requirements-dev.txt for testing and development tools
+

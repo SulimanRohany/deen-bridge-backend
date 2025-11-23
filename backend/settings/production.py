@@ -10,11 +10,6 @@ from sentry_sdk.integrations.django import DjangoIntegration
 # Production mode - DEBUG must be False
 DEBUG = False
 
-# Add security middleware for production
-MIDDLEWARE = MIDDLEWARE + [
-    'core.middleware.SecurityHeadersMiddleware',
-]
-
 # Security Settings
 # https://docs.djangoproject.com/en/5.2/ref/settings/#std:setting-SECURE_SSL_REDIRECT
 SECURE_SSL_REDIRECT = env.bool('SECURE_SSL_REDIRECT', default=True)
@@ -48,7 +43,7 @@ CACHES = {
         'BACKEND': 'django.core.cache.backends.redis.RedisCache',
         'LOCATION': env('REDIS_URL'),
         'OPTIONS': {
-            'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+            # 'CLIENT_CLASS': 'django_redis.client.DefaultClient',
         },
         'KEY_PREFIX': 'deenbridge',
         'TIMEOUT': 300,  # 5 minutes default
@@ -171,15 +166,15 @@ LOGGING = {
 }
 
 # Sentry Error Tracking (optional but highly recommended)
-SENTRY_DSN = env('SENTRY_DSN', default='')
-if SENTRY_DSN:
-    sentry_sdk.init(
-        dsn=SENTRY_DSN,
-        integrations=[DjangoIntegration()],
-        traces_sample_rate=0.1,  # 10% of transactions
-        send_default_pii=False,  # Don't send personally identifiable information
-        environment=env('SENTRY_ENVIRONMENT', default='production'),
-    )
+# SENTRY_DSN = env('SENTRY_DSN', default='')
+# if SENTRY_DSN:
+#     sentry_sdk.init(
+#         dsn=SENTRY_DSN,
+#         integrations=[DjangoIntegration()],
+#         traces_sample_rate=0.1,  # 10% of transactions
+#         send_default_pii=False,  # Don't send personally identifiable information
+#         environment=env('SENTRY_ENVIRONMENT', default='production'),
+#     )
 
 # Admin notifications
 ADMINS = [

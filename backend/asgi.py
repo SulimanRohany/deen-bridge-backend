@@ -11,9 +11,10 @@ https://docs.djangoproject.com/en/5.2/howto/deployment/asgi/
 import os
 
 # Ensure DJANGO_SETTINGS_MODULE is set
-# Default to production settings for ASGI (typically used in production)
+# Default to development settings for local development
+# For production, set DJANGO_SETTINGS_MODULE environment variable explicitly
 if 'DJANGO_SETTINGS_MODULE' not in os.environ:
-	os.environ['DJANGO_SETTINGS_MODULE'] = 'backend.settings.production'
+	os.environ['DJANGO_SETTINGS_MODULE'] = 'backend.settings.development'
 
 from django.core.asgi import get_asgi_application
 

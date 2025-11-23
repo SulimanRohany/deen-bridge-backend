@@ -153,3 +153,16 @@ class HealthCheckMiddleware(MiddlewareMixin):
             })
         return None
 
+
+class DisableCSRFForAPI(MiddlewareMixin):
+    """
+    Middleware to disable CSRF protection for API endpoints.
+    API endpoints use JWT authentication and don't need CSRF protection.
+    """
+    
+    def process_request(self, request):
+        """Disable CSRF for API endpoints"""
+        # Exempt all API endpoints from CSRF
+        if request.path.startswith('/api/'):
+            setattr(request, '_dont_enforce_csrf_checks', True)
+        return None
