@@ -236,6 +236,7 @@ class CertificateRetrieveUpdateDestroyView(RetrieveUpdateDestroyAPIView):
 class SessionJoinView(APIView):
     """Join a live session's SFU room."""
     permission_classes = [IsAuthenticated]
+    throttle_classes = []  # Exempt from rate limiting - critical user action
     
     def post(self, request, session_id):
         """Join a session's SFU room."""
@@ -376,6 +377,7 @@ class SFURoomAccessView(APIView):
 class SessionMonitorView(APIView):
     """Allow super admin to monitor a live session invisibly."""
     permission_classes = [IsAuthenticated]
+    throttle_classes = []  # Exempt from rate limiting - critical user action
     
     def post(self, request, session_id):
         """
