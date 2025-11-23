@@ -325,6 +325,7 @@ class SFURoomAccessView(APIView):
     The SFU backend calls this in production mode to validate access.
     """
     permission_classes = []  # No auth required - SFU backend handles auth
+    throttle_classes = []  # Exempt from rate limiting - called by SFU backend
     
     def post(self, request):
         """Validate if a user has access to a room."""
