@@ -10,6 +10,18 @@ from sentry_sdk.integrations.django import DjangoIntegration
 # Production mode - DEBUG must be False
 DEBUG = False
 
+
+# Add security middleware for production
+MIDDLEWARE = MIDDLEWARE + [
+    'core.middleware.SecurityHeadersMiddleware',
+]
+
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+
+ALLOWED_HOSTS = env.list('ALLOWED_HOSTS')
+
+
+
 # Security Settings
 # https://docs.djangoproject.com/en/5.2/ref/settings/#std:setting-SECURE_SSL_REDIRECT
 SECURE_SSL_REDIRECT = env.bool('SECURE_SSL_REDIRECT', default=True)

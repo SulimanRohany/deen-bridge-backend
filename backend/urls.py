@@ -5,6 +5,7 @@ from django.http import JsonResponse
 from django.conf import settings
 from django.conf.urls.static import static
 from core import views as core_views
+from course.views import SFURoomAccessView
 
 
 def health_check(request):
@@ -51,6 +52,9 @@ urlpatterns = [
     path('api/library/', include('library.urls')),
     path('api/quran/', include('quran.urls')),
     path('api/', include('custom_courses.urls')),
+    
+    # SFU backend endpoints (must be before core.urls to avoid conflicts)
+    path('api/sfu/room-access/', SFURoomAccessView.as_view(), name='sfu-room-access'),
     
     # Core app - includes unified communications endpoints
     path('api/', include('core.urls')),

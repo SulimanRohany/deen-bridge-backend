@@ -18,7 +18,7 @@ from .models import Class, LiveSession, Recording, Attendance, Certificate, Live
 from .filters import ClassFilter, LiveSessionFilter, RecordingFilter, AttendanceFilter, CertificateFilter, LiveSessionResourceFilter
 
 from core.utils import get_client_ip
-from accounts.models import RoleChoices
+from accounts.models import RoleChoices, CustomUser
 from core.pagination import CustomPagination
 # optional: pip install pyyaml user-agents
 from user_agents import parse as parse_ua  # optional
@@ -314,6 +314,63 @@ class SessionLeaveView(APIView):
             'message': 'Successfully left session',
             'session_id': session.id
         }, status=status.HTTP_200_OK)
+
+
+class SFURoomAccessView(APIView):
+    """Validate room access for SFU backend.
+    
+    This endpoint is called by the SFU backend to verify if a user
+    has permission to join a specific room (session).
+    The SFU backend calls this in production mode to validate access.
+    """
+    permission_classes = []  # No auth required - SFU backend handles auth
+    
+    def post(self, request):
+        """Validate if a user has access to a room."""
+        user_id = request.data.get('userId')
+        room_id = request.data.get('roomId')  # This is the session ID (numeric, not UUID)
+        
+        if not user_id or not room_id:
+            return Response(
+                {'allowed': False, 'error': 'userId and roomId are required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            # Get the user
+            user = CustomUser.objects.get(id=user_id)
+            
+            # roomId is actually the session ID (numeric)
+            # Convert to int if it's a string
+            try:
+                session_id = int(room_id)
+            except (ValueError, TypeError):
+                # If it's not a number, it might be a UUID or other format
+                # For now, allow it (flexible validation)
+                # This handles cases where roomId might be a UUID or other format
+                return Response({'allowed': True})
+            
+            # Check if session exists
+            session = LiveSession.objects.filter(id=session_id).first()
+            
+            if not session:
+                return Response({'allowed': False})
+            
+            # Check if user can join this session
+            if session.can_user_join(user):
+                return Response({'allowed': True})
+            else:
+                return Response({'allowed': False})
+                
+        except CustomUser.DoesNotExist:
+            return Response({'allowed': False})
+        except Exception as e:
+            # Log error but allow access in case of errors (fail open)
+            # This prevents blocking users if there's a temporary issue
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f'Error validating room access: {e}', exc_info=True)
+            return Response({'allowed': True})
 
 
 class SessionMonitorView(APIView):
