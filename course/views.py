@@ -1,4 +1,9 @@
 from django.shortcuts import render
+import hmac
+import hashlib
+import json
+import os
+import logging
 
 from rest_framework.generics import ListCreateAPIView, RetrieveUpdateDestroyAPIView, ListAPIView
 from rest_framework.views import APIView
@@ -7,6 +12,8 @@ from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from django.shortcuts import get_object_or_404
+from django.views.decorators.csrf import csrf_exempt
+from django.utils.decorators import method_decorator
 
 
 from django_filters.rest_framework import DjangoFilterBackend
@@ -22,6 +29,8 @@ from accounts.models import RoleChoices, CustomUser
 from core.pagination import CustomPagination
 # optional: pip install pyyaml user-agents
 from user_agents import parse as parse_ua  # optional
+
+logger = logging.getLogger(__name__)
 
 
 
@@ -420,6 +429,149 @@ class SessionMonitorView(APIView):
             },
             'mode': 'sfu'
         })
+
+
+@method_decorator(csrf_exempt, name='dispatch')
+class SFUWebhookView(APIView):
+    """Receive webhooks from SFU backend.
+    
+    Handles events like participant.joined, participant.left, room.created, etc.
+    """
+    permission_classes = []  # No auth required - signature verification instead
+    throttle_classes = []  # Exempt from rate limiting - called by SFU backend
+    
+    def verify_signature(self, event_data, signature_header):
+        """Verify webhook signature using HMAC SHA256.
+        
+        The SFU backend signs the event object (event + data), not the full payload.
+        JavaScript's JSON.stringify preserves insertion order, so we reconstruct the object
+        in the same order: {'event': ..., 'data': ...}
+        """
+        webhook_secret = os.environ.get('SFU_WEBHOOK_SECRET', '')
+        if not webhook_secret:
+            logger.warning('SFU_WEBHOOK_SECRET not set in environment variables')
+            return False
+        
+        # Remove 'sha256=' prefix if present
+        signature = signature_header.replace('sha256=', '')
+        
+        # Reconstruct event object in the same order as JavaScript (event first, then data)
+        # This matches how the SFU backend creates and signs the event object
+        ordered_event = {'event': event_data['event'], 'data': event_data['data']}
+        
+        # Calculate expected signature from the event object (event + data)
+        # Don't use sort_keys to match JavaScript's JSON.stringify behavior
+        event_json = json.dumps(ordered_event, separators=(',', ':'))
+        expected_signature = hmac.new(
+            webhook_secret.encode('utf-8'),
+            event_json.encode('utf-8'),
+            hashlib.sha256
+        ).hexdigest()
+        
+        # Use constant-time comparison to prevent timing attacks
+        return hmac.compare_digest(signature, expected_signature)
+    
+    def post(self, request):
+        """Handle webhook events from SFU backend."""
+        # Get signature from header
+        signature = request.headers.get('X-SFU-Signature', '')
+        event_type = request.headers.get('X-SFU-Event', '')
+        timestamp = request.headers.get('X-SFU-Timestamp', '')
+        
+        # Extract event and data from the payload
+        event = request.data.get('event')
+        data = request.data.get('data', {})
+        
+        # Reconstruct the event object that was signed (event + data, without timestamp/signature)
+        event_object = {
+            'event': event,
+            'data': data
+        }
+        
+        # Verify signature
+        if not self.verify_signature(event_object, signature):
+            logger.warning(f'Invalid webhook signature for event: {event_type}')
+            return Response(
+                {'error': 'Invalid signature'},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+        
+        try:
+            if event == 'participant.joined':
+                self.handle_participant_joined(data)
+            elif event == 'participant.left':
+                self.handle_participant_left(data)
+            elif event == 'room.created':
+                self.handle_room_created(data)
+            elif event == 'room.ended':
+                self.handle_room_ended(data)
+            elif event == 'recording.started':
+                self.handle_recording_started(data)
+            elif event == 'recording.stopped':
+                self.handle_recording_stopped(data)
+            else:
+                logger.info(f'Received unhandled webhook event: {event}')
+            
+            return Response({'status': 'ok'}, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            logger.error(f'Error handling webhook event {event}: {e}', exc_info=True)
+            # Still return 200 to prevent SFU from retrying
+            return Response({'status': 'error', 'message': str(e)}, status=status.HTTP_200_OK)
+    
+    def handle_participant_joined(self, data):
+        """Handle participant.joined event."""
+        room_id = data.get('roomId')
+        user_id = data.get('userId')
+        participant_id = data.get('participantId')
+        display_name = data.get('displayName')
+        joined_at = data.get('joinedAt')
+        
+        logger.info(f'Participant joined: room={room_id}, user={user_id}, participant={participant_id}, display_name={display_name}')
+        
+        # You can add database logging or other actions here
+        # For example, update session participant count or log to database
+    
+    def handle_participant_left(self, data):
+        """Handle participant.left event."""
+        room_id = data.get('roomId')
+        user_id = data.get('userId')
+        participant_id = data.get('participantId')
+        left_at = data.get('leftAt')
+        
+        logger.info(f'Participant left: room={room_id}, user={user_id}, participant={participant_id}')
+    
+    def handle_room_created(self, data):
+        """Handle room.created event."""
+        room_id = data.get('roomId')
+        name = data.get('name')
+        created_by = data.get('createdBy')
+        
+        logger.info(f'Room created: room={room_id}, name={name}, created_by={created_by}')
+    
+    def handle_room_ended(self, data):
+        """Handle room.ended event."""
+        room_id = data.get('roomId')
+        ended_at = data.get('endedAt')
+        
+        logger.info(f'Room ended: room={room_id}, ended_at={ended_at}')
+    
+    def handle_recording_started(self, data):
+        """Handle recording.started event."""
+        room_id = data.get('roomId')
+        recording_id = data.get('recordingId')
+        started_at = data.get('startedAt')
+        
+        logger.info(f'Recording started: room={room_id}, recording={recording_id}, started_at={started_at}')
+    
+    def handle_recording_stopped(self, data):
+        """Handle recording.stopped event."""
+        room_id = data.get('roomId')
+        recording_id = data.get('recordingId')
+        stopped_at = data.get('stoppedAt')
+        duration = data.get('duration')
+        
+        logger.info(f'Recording stopped: room={room_id}, recording={recording_id}, stopped_at={stopped_at}, duration={duration}')
 
 
 class TimetableListView(ListAPIView):
