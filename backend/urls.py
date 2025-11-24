@@ -55,7 +55,7 @@ urlpatterns = [
     
     # SFU backend endpoints (must be before core.urls to avoid conflicts)
     path('api/sfu/room-access/', SFURoomAccessView.as_view(), name='sfu-room-access'),
-    path('sfu/webhook/', SFUWebhookView.as_view(), name='sfu_webhook'),
+    path('api/sfu/webhook/', SFUWebhookView.as_view(), name='sfu_webhook'),
     
     # Core app - includes unified communications endpoints
     path('api/', include('core.urls')),
