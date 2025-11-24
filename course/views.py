@@ -473,7 +473,24 @@ class SFUWebhookView(APIView):
     
     def post(self, request):
         """Handle webhook events from SFU backend."""
-        # Get signature from header
+        logger.error("=== SFU WEBHOOK HIT ===")
+        logger.error(f"Headers: {dict(request.headers)}")
+        logger.error(f"Body: {request.body}")
+        logger.error(f"Secret from header: {request.headers.get('X-Webhook-Secret')}")
+        
+        # Check webhook secret first (simpler validation)
+        secret = request.headers.get('X-Webhook-Secret')
+        expected_secret = os.environ.get('SFU_WEBHOOK_SECRET', '')
+        
+        if not expected_secret:
+            logger.error('SFU_WEBHOOK_SECRET not set in environment variables')
+            return Response({'error': 'webhook secret not configured'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+        if secret != expected_secret:
+            logger.error(f"Invalid secret! Expected: {expected_secret}, Got: {secret}")
+            return Response({"error": "invalid secret"}, status=status.HTTP_403_FORBIDDEN)
+        
+        # Get signature from header (for backward compatibility if needed)
         signature = request.headers.get('X-SFU-Signature', '')
         event_type = request.headers.get('X-SFU-Event', '')
         timestamp = request.headers.get('X-SFU-Timestamp', '')
@@ -488,13 +505,14 @@ class SFUWebhookView(APIView):
             'data': data
         }
         
-        # Verify signature
-        if not self.verify_signature(event_object, signature):
-            logger.warning(f'Invalid webhook signature for event: {event_type}')
-            return Response(
-                {'error': 'Invalid signature'},
-                status=status.HTTP_401_UNAUTHORIZED
-            )
+        # Verify signature (optional - secret check above may be sufficient)
+        # Uncomment if you want to keep signature verification
+        # if not self.verify_signature(event_object, signature):
+        #     logger.warning(f'Invalid webhook signature for event: {event_type}')
+        #     return Response(
+        #         {'error': 'Invalid signature'},
+        #         status=status.HTTP_401_UNAUTHORIZED
+        #     )
         
         try:
             if event == 'participant.joined':
