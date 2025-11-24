@@ -480,8 +480,7 @@ class SFUWebhookView(APIView):
         
         # Check webhook secret first (simpler validation)
         secret = request.headers.get('X-Webhook-Secret')
-        # expected_secret = os.environ.get('SFU_WEBHOOK_SECRET', '')
-        expected_secret = os.environ.get('DJANGO_WEBHOOK_SECRET', '')
+        expected_secret = os.environ.get('SFU_WEBHOOK_SECRET', '')
         
         if not expected_secret:
             logger.error('SFU_WEBHOOK_SECRET not set in environment variables')
