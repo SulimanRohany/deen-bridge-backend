@@ -62,7 +62,10 @@ server {
     error_log /var/log/nginx/deenbridge_error.log;
 
     # General settings
+    # IMPORTANT: Increase body size limit for large blog posts with rich text content and images
+    # This prevents 413 Request Entity Too Large errors
     client_max_body_size 100M;
+    client_body_buffer_size 128k;
     client_body_timeout 120s;
     keepalive_timeout 65;
 

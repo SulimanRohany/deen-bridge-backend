@@ -174,6 +174,17 @@ STATIC_ROOT = BASE_DIR / 'staticfiles'
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 
+# File Upload Size Limits
+# Increase upload size limits to handle large blog posts with rich text content and images
+# 10MB for form data (non-file fields like rich text content)
+DATA_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024  # 10MB
+# 50MB for file uploads (featured images, etc.)
+FILE_UPLOAD_MAX_MEMORY_SIZE = 50 * 1024 * 1024  # 50MB
+# Maximum number of fields in a form
+DATA_UPLOAD_MAX_NUMBER_FIELDS = 10000
+# Maximum number of files in a multipart upload
+DATA_UPLOAD_MAX_NUMBER_FILES = 100
+
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
