@@ -1,9 +1,12 @@
 
 from django.contrib import admin
 from django.urls import path, include
-from django.http import JsonResponse
+from django.http import JsonResponse, Http404, HttpResponse
 from django.conf import settings
 from django.conf.urls.static import static
+from django.views.static import serve
+from django.utils._os import safe_join
+import os
 from core import views as core_views
 from course.views import SFURoomAccessView, SFUWebhookView
 
@@ -62,7 +65,32 @@ urlpatterns = [
 
 ]
 
+# Serve media files in production (fallback if nginx is not configured correctly)
+# This should ideally be handled by nginx, but this ensures media files are accessible
+def serve_media(request, path):
+    """
+    Serve media files in production.
+    This is a fallback if nginx is not properly configured to serve media files.
+    For better performance, configure nginx to serve media files directly.
+    """
+    # Security: Only serve files from MEDIA_ROOT
+    file_path = safe_join(settings.MEDIA_ROOT, path)
+    
+    # Additional security check
+    if not file_path or not os.path.exists(file_path):
+        raise Http404("Media file not found")
+    
+    # Ensure the file is within MEDIA_ROOT (prevent directory traversal)
+    if not file_path.startswith(os.path.abspath(settings.MEDIA_ROOT)):
+        raise Http404("Invalid media file path")
+    
+    return serve(request, path, document_root=settings.MEDIA_ROOT)
 
-
-if settings.DEBUG:
+# Add media URL pattern for production
+if not settings.DEBUG:
+    urlpatterns += [
+        path('media/<path:path>', serve_media, name='media'),
+    ]
+else:
+    # In DEBUG mode, use Django's static file serving
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
