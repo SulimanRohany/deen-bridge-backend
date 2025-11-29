@@ -130,10 +130,12 @@ class SecurityHeadersMiddleware(MiddlewareMixin):
         response['Referrer-Policy'] = 'strict-origin-when-cross-origin'
         
         # Add Permissions Policy (formerly Feature Policy)
+        # Allow camera and microphone for same origin (needed for live video sessions)
+        # Block geolocation for security
         response['Permissions-Policy'] = (
             "geolocation=(), "
-            "microphone=(), "
-            "camera=()"
+            "microphone=(self), "
+            "camera=(self)"
         )
         
         return response
