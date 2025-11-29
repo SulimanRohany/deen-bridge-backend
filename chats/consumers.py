@@ -19,8 +19,6 @@ class ChatConsumer(AsyncWebsocketConsumer):
         self.is_fully_connected = False  # Track if connection is fully established (room group joined)
         
         try:
-            print(f"🔍 Chat connection attempt started")
-            
             # Get session ID from URL route
             self.session_id = self.scope['url_route']['kwargs']['session_id']
             self.room_group_name = f'chat.session.{self.session_id}'
@@ -28,18 +26,10 @@ class ChatConsumer(AsyncWebsocketConsumer):
             # Get user from scope (authenticated via JWT middleware)
             self.user = self.scope.get('user')
             
-            print(f"   Session ID: {self.session_id}")
-            print(f"   Room group: {self.room_group_name}")
-            print(f"   User: {self.user}")
-            print(f"   Is authenticated: {self.user.is_authenticated if self.user else 'No user'}")
-            
             # Check authentication
             if not self.user or not self.user.is_authenticated:
-                print(f"❌ Unauthorized chat connection attempt for session: {self.session_id}")
                 await self.close(code=4001)
                 return
-            
-            print(f"✅ Chat WebSocket connection for session: {self.session_id}, user: {self.user.email}")
             
             # Accept connection first (before joining group)
             await self.accept()
@@ -50,18 +40,12 @@ class ChatConsumer(AsyncWebsocketConsumer):
                     self.room_group_name,
                     self.channel_name
                 )
-                print(f"✅ Successfully joined room group: {self.room_group_name}")
                 self.is_fully_connected = True  # Mark as fully connected
             except Exception as e:
                 error_msg = str(e)
-                print(f"❌ Error joining room group: {error_msg}")
                 
                 # Check if it's a Redis connection error
                 if '6379' in error_msg or 'redis' in error_msg.lower() or '10061' in error_msg or 'ConnectionRefusedError' in error_msg:
-                    print(f"   ⚠️ Redis is not running. Please start Redis server:")
-                    print(f"      Windows: Download from https://github.com/microsoftarchive/redis/releases")
-                    print(f"      Or use Docker: docker run -d -p 6379:6379 redis:alpine")
-                    print(f"      Or set REDIS_URL='' in .env to use InMemoryChannelLayer (development only)")
                     # Send error message to client before closing
                     try:
                         await self.send(text_data=json.dumps({
@@ -101,22 +85,10 @@ class ChatConsumer(AsyncWebsocketConsumer):
                     }
                 )
             except Exception as e:
-                print(f"⚠️ Error sending user_joined notification: {e}")
                 # Don't fail the connection if this fails
-            
-            print(f"✅ Chat WebSocket connection established successfully")
+                pass
             
         except Exception as e:
-            error_msg = str(e)
-            print(f"❌ Error in chat connect: {error_msg}")
-            
-            # Check if it's a Redis connection error
-            if '6379' in error_msg or 'redis' in error_msg.lower() or '10061' in error_msg:
-                print("⚠️ Redis connection failed. Please start Redis server:")
-                print("   Windows: Download and run Redis from https://github.com/microsoftarchive/redis/releases")
-                print("   Or use: docker run -d -p 6379:6379 redis:alpine")
-                print("   Or set REDIS_URL='' in .env to use InMemoryChannelLayer (development only)")
-            
             import traceback
             traceback.print_exc()
             try:
@@ -126,9 +98,6 @@ class ChatConsumer(AsyncWebsocketConsumer):
 
     async def disconnect(self, close_code):
         """Handle WebSocket disconnection."""
-        session_id = getattr(self, 'session_id', 'unknown')
-        print(f"💬 Chat WebSocket disconnected for session: {session_id}, code: {close_code}")
-        
         # Notify others that user left (only if we successfully connected)
         if hasattr(self, 'user') and self.user and self.user.is_authenticated and hasattr(self, 'room_group_name'):
             try:
@@ -140,8 +109,8 @@ class ChatConsumer(AsyncWebsocketConsumer):
                         'user_name': self.user.full_name if hasattr(self.user, 'full_name') and self.user.full_name else self.user.email,
                     }
                 )
-            except Exception as e:
-                print(f"⚠️ Error sending user_left notification: {e}")
+            except Exception:
+                pass
         
         # Leave room group (only if we successfully joined)
         if hasattr(self, 'room_group_name') and hasattr(self, 'channel_name'):
@@ -150,15 +119,14 @@ class ChatConsumer(AsyncWebsocketConsumer):
                     self.room_group_name,
                     self.channel_name
                 )
-            except Exception as e:
-                print(f"⚠️ Error leaving room group: {e}")
+            except Exception:
+                pass
 
     async def receive(self, text_data):
         """Handle incoming WebSocket messages."""
         try:
             # Check if connection is fully established
             if not hasattr(self, 'is_fully_connected') or not self.is_fully_connected:
-                print(f"❌ Received message but connection is not fully established.")
                 await self.send(text_data=json.dumps({
                     'type': 'error',
                     'message': 'Connection not fully established. Please reconnect. (Redis may not be running)',
@@ -167,7 +135,6 @@ class ChatConsumer(AsyncWebsocketConsumer):
             
             # Check if user is set (connection might have failed)
             if not hasattr(self, 'user') or not self.user:
-                print(f"❌ Received message but user is not set. Connection may have failed.")
                 await self.send(text_data=json.dumps({
                     'type': 'error',
                     'message': 'Connection not properly established. Please reconnect.',
@@ -176,8 +143,6 @@ class ChatConsumer(AsyncWebsocketConsumer):
             
             data = json.loads(text_data)
             message_type = data.get('type')
-            
-            print(f"📩 Received chat message: {message_type} from {self.user.email}")
             
             if message_type == 'chat_message':
                 # Handle chat message
@@ -192,7 +157,6 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 
                 # Check if room group is set
                 if not hasattr(self, 'room_group_name') or not self.room_group_name:
-                    print(f"❌ Cannot send message: room_group_name not set")
                     await self.send(text_data=json.dumps({
                         'type': 'error',
                         'message': 'Connection not fully established. Please reconnect.',
@@ -219,7 +183,6 @@ class ChatConsumer(AsyncWebsocketConsumer):
                     )
                 except Exception as e:
                     error_msg = str(e)
-                    print(f"❌ Error broadcasting message: {error_msg}")
                     
                     # Check if it's a Redis error
                     if '6379' in error_msg or 'redis' in error_msg.lower() or '10061' in error_msg or 'ConnectionRefusedError' in error_msg:
@@ -248,9 +211,9 @@ class ChatConsumer(AsyncWebsocketConsumer):
                             'is_typing': is_typing,
                         }
                     )
-                except Exception as e:
-                    print(f"⚠️ Error sending typing indicator: {e}")
+                except Exception:
                     # Don't fail - typing indicator is not critical
+                    pass
             
             elif message_type == 'get_history':
                 # Send chat history to the requesting user
@@ -278,14 +241,12 @@ class ChatConsumer(AsyncWebsocketConsumer):
                     'unread_count': updated_unread_count,
                 }))
             
-        except json.JSONDecodeError as e:
-            print(f"❌ JSON decode error in chat: {e}")
+        except json.JSONDecodeError:
             await self.send(text_data=json.dumps({
                 'type': 'error',
                 'message': 'Invalid message format',
             }))
-        except Exception as e:
-            print(f"❌ Error processing chat message: {e}")
+        except Exception:
             await self.send(text_data=json.dumps({
                 'type': 'error',
                 'message': 'Failed to process message',
@@ -302,15 +263,10 @@ class ChatConsumer(AsyncWebsocketConsumer):
         sender_id = event.get('sender_id')
         is_sender = sender_id == self.user.id
         
-        print(f"📤 Broadcasting to {self.user.email}: sender_id={sender_id}, is_sender={is_sender}")
-        
         if not is_sender:
             # This user is receiving the message, calculate their unread count
             unread_count = await self.get_unread_count(self.session_id)
             message_data['unread_count'] = unread_count
-            print(f"   📊 Unread count for {self.user.email}: {unread_count}")
-        else:
-            print(f"   ✉️ User is sender, no unread count needed")
         
         await self.send(text_data=json.dumps(message_data))
 
@@ -401,8 +357,6 @@ class ChatConsumer(AsyncWebsocketConsumer):
             read_by=self.user  # Exclude messages where user is in read_by
         ).count()
         
-        print(f"🔍 get_unread_count for {self.user.email}: total={all_messages}, unread={unread_count}")
-        
         return unread_count
     
     @database_sync_to_async
@@ -431,8 +385,6 @@ class ChatConsumer(AsyncWebsocketConsumer):
         for message in messages_query:
             message.read_by.add(self.user)
             marked_count += 1
-        
-        print(f"✅ Marked {marked_count} messages as read for {self.user.email}")
         
         return marked_count
 

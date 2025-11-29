@@ -6,6 +6,7 @@ from django.utils import timezone
 from django.core.exceptions import ValidationError
 
 from enrollments.models import EnrollmentChoices
+from accounts.models import RoleChoices
 
 
 current_time = timezone.localtime().time()
@@ -222,6 +223,10 @@ class LiveSession(models.Model):
     
     def can_user_join(self, user):
         """Check if user can join this session."""
+        # Allow superusers and super admins to join any session (for monitoring)
+        if user.is_superuser or user.role == RoleChoices.SUPER_ADMIN:
+            return True
+        
         # Check if user is a teacher of the class
         if self.class_session.teacher.filter(id=user.id).exists():
             return True

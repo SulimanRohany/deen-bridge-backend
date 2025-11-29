@@ -1,12 +1,15 @@
 """
 Utility functions for creating and sending notifications
 """
+import logging
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
 from django.utils import timezone
 
 from .models import Notification, NotificationChannels, NotificationType, NotificationStatus
 from .serializers import NotificationListSerializer
+
+logger = logging.getLogger(__name__)
 
 
 def send_notification(
@@ -57,7 +60,7 @@ def send_notification(
             }
         )
     except Exception as e:
-        print(f"Error sending notification via WebSocket to user {user.id}: {e}")
+        logger.error(f"Error sending notification via WebSocket to user {user.id}: {e}", exc_info=True)
     
     return notification
 
@@ -114,7 +117,7 @@ def send_notification_to_multiple_users(
                 }
             )
         except Exception as e:
-            print(f"Error sending notification via WebSocket to user {user.id}: {e}")
+            logger.error(f"Error sending notification via WebSocket to user {user.id}: {e}", exc_info=True)
     
     return notifications
 

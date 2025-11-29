@@ -262,9 +262,7 @@ if USE_REDIS:
                 },
             },
         }
-        print(f"✅ Using Redis Channel Layer: {redis_host}:{redis_port} (db: {redis_db})")
     except Exception as e:
-        print(f"⚠️ Error parsing REDIS_URL, falling back to InMemoryChannelLayer: {e}")
         CHANNEL_LAYERS = {
             'default': {
                 'BACKEND': 'channels.layers.InMemoryChannelLayer',
@@ -276,7 +274,6 @@ else:
             'BACKEND': 'channels.layers.InMemoryChannelLayer',
         },
     }
-    print("✅ Using InMemoryChannelLayer (Redis not configured or disabled)")
 
 # CORS Settings (will be overridden in production)
 CORS_ALLOW_ALL_ORIGINS = DEBUG

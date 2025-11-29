@@ -35,19 +35,13 @@ class PostBySlugView(RetrieveAPIView):
     lookup_url_kwarg = 'slug'
 
     def get_queryset(self):
-        # For debugging, let's see what's available
         published_posts = Post.objects.filter(status='published')
-        all_posts = Post.objects.all()
         
-        print(f"Available published posts: {list(published_posts.values_list('slug', 'title', 'status'))}")
-        print(f"All posts: {list(all_posts.values_list('slug', 'title', 'status'))}")
-        
-        # If no published posts, show all posts for debugging
+        # If no published posts, show all posts
         if published_posts.exists():
             return published_posts
         else:
-            print("No published posts found, showing all posts")
-            return all_posts
+            return Post.objects.all()
 
 
 class CommentListCreateView(ListCreateAPIView):

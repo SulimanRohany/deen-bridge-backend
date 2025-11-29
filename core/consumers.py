@@ -29,20 +29,16 @@ class WebRTCSignalingConsumer(AsyncWebsocketConsumer):
         try:
             self.room_id = self.scope["url_route"]["kwargs"]["session_id"]
             self.room_group = room_group_name(self.room_id)
-            print(f"WebSocket connection attempt for room: {self.room_id}")
         except Exception as e:
-            print(f"Error in connect: {e}")
             await self.close(code=4001)
             return
 
         self.client_id = None
         await self.accept()
-        print(f"WebSocket connected for room: {self.room_id}")
         # Join room group immediately so we can receive broadcasts
         await self.channel_layer.group_add(self.room_group, self.channel_name)
 
     async def disconnect(self, code):
-        print(f"WebSocket disconnected for room: {self.room_id}, code: {code}")
         # Leave room group
         await self.channel_layer.group_discard(self.room_group, self.channel_name)
         # Leave personal group (if registered)
@@ -57,8 +53,6 @@ class WebRTCSignalingConsumer(AsyncWebsocketConsumer):
             msg_type = content.get("type")
             sender = content.get("from")
             target = content.get("to")
-
-            print(f"Received message: {msg_type} from {sender} to {target}")
 
             if msg_type == "ready":
                 # Register personal peer group once we know our clientId
@@ -90,13 +84,13 @@ class WebRTCSignalingConsumer(AsyncWebsocketConsumer):
                 return
 
             # Ignore unknown types silently
-        except json.JSONDecodeError as e:
-            print(f"JSON decode error: {e}")
-        except Exception as e:
-            print(f"Error processing message: {e}")
+        except json.JSONDecodeError:
+            pass
+        except Exception:
+            pass
 
     async def signal_message(self, event):
         try:
             await self.send(text_data=json.dumps(event["payload"]))
-        except Exception as e:
-            print(f"Error sending signal message: {e}")
+        except Exception:
+            pass

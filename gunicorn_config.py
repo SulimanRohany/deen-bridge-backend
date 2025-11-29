@@ -89,42 +89,42 @@ def post_fork(server, worker):
     """
     Called just after a worker has been forked.
     """
-    print(f"Worker spawned (pid: {worker.pid})")
+    pass
 
 
 def pre_exec(server):
     """
     Called just before a new master process is forked.
     """
-    print("Forked child, re-executing.")
+    pass
 
 
 def worker_int(worker):
     """
     Called when a worker receives the SIGINT or SIGQUIT signal.
     """
-    print(f"Worker received SIGINT/SIGQUIT (pid: {worker.pid})")
+    pass
 
 
 def worker_abort(worker):
     """
     Called when a worker times out.
     """
-    print(f"Worker timeout, aborting (pid: {worker.pid})")
+    pass
 
 
 def post_worker_init(worker):
     """
     Called just after a worker has initialized the application.
     """
-    print(f"Worker initialized (pid: {worker.pid})")
+    pass
 
 
 def worker_exit(server, worker):
     """
     Called just after a worker has been exited.
     """
-    print(f"Worker exited (pid: {worker.pid})")
+    pass
 
 
 def child_exit(server, worker):

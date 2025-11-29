@@ -351,6 +351,12 @@ class SFURoomAccessView(APIView):
             # Get the user
             user = CustomUser.objects.get(id=user_id)
             
+            # Allow superusers and super admins to access any room (for monitoring)
+            # This matches the behavior in development mode where all access is allowed
+            # and enables super admins to monitor live sessions
+            if user.is_superuser or user.role == RoleChoices.SUPER_ADMIN:
+                return Response({'allowed': True})
+            
             # roomId is actually the session ID (numeric)
             # Convert to int if it's a string
             try:
@@ -367,7 +373,7 @@ class SFURoomAccessView(APIView):
             if not session:
                 return Response({'allowed': False})
             
-            # Check if user can join this session
+            # Check if user can join this session (for regular users)
             if session.can_user_join(user):
                 return Response({'allowed': True})
             else:

@@ -1,6 +1,7 @@
 from django.shortcuts import render
 from django.utils import timezone
 from django.db.models import Q
+import logging
 
 from rest_framework.generics import ListCreateAPIView, RetrieveUpdateDestroyAPIView
 from rest_framework.permissions import IsAuthenticated
@@ -13,6 +14,8 @@ from asgiref.sync import async_to_sync
 
 from .models import Notification
 from .serializers import NotificationSerializer, NotificationListSerializer
+
+logger = logging.getLogger(__name__)
 
 
 class NotificationPagination(PageNumberPagination):
@@ -61,7 +64,7 @@ class NotificationListCreateView(ListCreateAPIView):
                 }
             )
         except Exception as e:
-            print(f"Error sending notification via WebSocket: {e}")
+            logger.error(f"Error sending notification via WebSocket: {e}", exc_info=True)
 
 
 class NotificationRetrieveUpdateDestroyView(RetrieveUpdateDestroyAPIView):
