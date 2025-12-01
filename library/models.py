@@ -58,7 +58,7 @@ class LibraryResource(models.Model):
     # Basic Information
     title = models.CharField(max_length=500)
     title_arabic = models.CharField(max_length=500, blank=True, help_text="Arabic title")
-    author = models.CharField(max_length=255)
+    author = models.CharField(max_length=255, blank=True)
     author_arabic = models.CharField(max_length=255, blank=True, help_text="Arabic author name")
     
     # Categories
