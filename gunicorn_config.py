@@ -20,7 +20,7 @@ worker_connections = 1000
 threads = int(os.getenv('GUNICORN_THREADS', 2))
 max_requests = 1000  # Restart workers after this many requests (prevents memory leaks)
 max_requests_jitter = 100  # Add jitter to prevent all workers restarting at once
-timeout = int(os.getenv('GUNICORN_TIMEOUT', 120))  # Worker timeout in seconds
+timeout = int(os.getenv('GUNICORN_TIMEOUT', 600))  # Worker timeout in seconds (10 minutes for large file uploads)
 graceful_timeout = 30  # Time to wait for workers to finish before killing them
 keepalive = 5  # Seconds to wait for requests on a Keep-Alive connection
 
