@@ -12,8 +12,8 @@ def create_user_profile(sender, instance, created, **kwargs):
             TeacherProfile.objects.create(user=instance)
         elif instance.role == RoleChoices.STUDENT:
             StudentProfile.objects.create(user=instance)
-        elif instance.role == RoleChoices.PARENT:
-            StudentParentProfile.objects.create(user=instance)
+        # Note: StudentParentProfile is not auto-created for parents
+        # as it requires a student relationship which is created separately
         elif instance.role == RoleChoices.STAFF:
             StaffProfile.objects.create(user=instance)
         elif instance.role == RoleChoices.SUPER_ADMIN:
@@ -61,3 +61,34 @@ def notify_super_admins_on_new_user(sender, instance, created, **kwargs):
                     'frontend_path': f'/admin/users/{instance.id}',  # Suggested frontend path
                 }
             )
+
+
+@receiver(post_save, sender=CustomUser)
+def send_verification_email_on_registration(sender, instance, created, **kwargs):
+    """
+    Send email verification email when a new user is created
+    Only sends if user is not already verified and not a superuser
+    """
+    if created and not instance.email_verified:
+        # Skip verification for superusers - they are automatically verified
+        if instance.is_superuser:
+            instance.email_verified = True
+            instance.save(update_fields=['email_verified'])
+            return
+        
+        try:
+            # Import here to avoid circular imports
+            from .models import EmailVerificationToken
+            from .utils import send_email_verification
+            
+            # Create verification token (24 hour expiration)
+            verification_token = EmailVerificationToken.create_for_user(instance, expiration_hours=24)
+            
+            # Send verification email
+            send_email_verification(instance, verification_token.token)
+        except Exception as e:
+            # Log error but don't prevent user creation
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Failed to send verification email to {instance.email}: {str(e)}")
+            # Don't raise - user creation should still succeed even if email fails

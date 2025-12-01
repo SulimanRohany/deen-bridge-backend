@@ -1,4 +1,6 @@
 from django.db import models
+from django.utils import timezone
+from datetime import timedelta
 
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
 from django.core.validators import MinValueValidator, EmailValidator
@@ -42,6 +44,7 @@ class CustomUserManager(BaseUserManager):
         extra_fields.setdefault('is_staff', True)
         extra_fields.setdefault('is_superuser', True)
         extra_fields.setdefault('role', RoleChoices.SUPER_ADMIN)
+        extra_fields.setdefault('email_verified', True)  # Superusers are automatically verified
         return self.create_user(
             email=email, 
             password=password, 
@@ -58,6 +61,7 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
 
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)
+    email_verified = models.BooleanField(default=False)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -128,3 +132,83 @@ class SuperAdminUser(CustomUser):
     class Meta:
         proxy = True
         verbose_name = "super admin user"
+
+
+class PasswordResetToken(models.Model):
+    """Model to store password reset tokens with expiration and single-use validation"""
+    user = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='password_reset_tokens')
+    token = models.CharField(max_length=255, unique=True, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    used = models.BooleanField(default=False)
+
+    class Meta:
+        db_table = 'password_reset_tokens'
+        indexes = [
+            models.Index(fields=['token']),
+            models.Index(fields=['user', 'used']),
+        ]
+
+    def __str__(self):
+        return f"Password reset token for {self.user.email} - {'Used' if self.used else 'Active'}"
+
+    def is_valid(self):
+        """Check if token is valid (not expired and not used)"""
+        return not self.used and timezone.now() < self.expires_at
+
+    def mark_as_used(self):
+        """Mark token as used"""
+        self.used = True
+        self.save(update_fields=['used'])
+
+    @classmethod
+    def create_for_user(cls, user, expiration_hours=1):
+        """Create a new password reset token for a user"""
+        import secrets
+        token = secrets.token_urlsafe(32)
+        expires_at = timezone.now() + timedelta(hours=expiration_hours)
+        return cls.objects.create(
+            user=user,
+            token=token,
+            expires_at=expires_at
+        )
+
+
+class EmailVerificationToken(models.Model):
+    """Model to store email verification tokens with expiration and single-use validation"""
+    user = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='email_verification_tokens')
+    token = models.CharField(max_length=255, unique=True, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    used = models.BooleanField(default=False)
+
+    class Meta:
+        db_table = 'email_verification_tokens'
+        indexes = [
+            models.Index(fields=['token']),
+            models.Index(fields=['user', 'used']),
+        ]
+
+    def __str__(self):
+        return f"Email verification token for {self.user.email} - {'Used' if self.used else 'Active'}"
+
+    def is_valid(self):
+        """Check if token is valid (not expired and not used)"""
+        return not self.used and timezone.now() < self.expires_at
+
+    def mark_as_used(self):
+        """Mark token as used"""
+        self.used = True
+        self.save(update_fields=['used'])
+
+    @classmethod
+    def create_for_user(cls, user, expiration_hours=24):
+        """Create a new email verification token for a user"""
+        import secrets
+        token = secrets.token_urlsafe(32)
+        expires_at = timezone.now() + timedelta(hours=expiration_hours)
+        return cls.objects.create(
+            user=user,
+            token=token,
+            expires_at=expires_at
+        )

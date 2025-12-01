@@ -17,6 +17,15 @@ env = environ.Env(
     REDIS_URL=(str, ''),  # Empty by default - uses InMemoryChannelLayer. Set to 'redis://127.0.0.1:6379/0' to use Redis
     BACKEND_URL=(str, 'http://localhost:8000'),
     CORS_ALLOWED_ORIGINS=(list, []),
+    FRONTEND_URL=(str, 'http://localhost:3000'),
+    EMAIL_BACKEND=(str, 'django.core.mail.backends.smtp.EmailBackend'),
+    EMAIL_HOST=(str, 'smtp.gmail.com'),
+    EMAIL_PORT=(int, 587),
+    EMAIL_USE_TLS=(bool, True),
+    EMAIL_HOST_USER=(str, ''),
+    EMAIL_HOST_PASSWORD=(str, ''),
+    DEFAULT_FROM_EMAIL=(str, ''),
+    SERVER_EMAIL=(str, ''),
 )
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -37,6 +46,8 @@ ALLOWED_HOSTS = env.list('ALLOWED_HOSTS', default=['localhost', '127.0.0.1'])
 
 # Backend URL for notifications and links
 BACKEND_URL = env('BACKEND_URL')
+# Frontend URL for password reset links and redirects
+FRONTEND_URL = env('FRONTEND_URL', default='http://localhost:3000')
 
 # Application definition
 INSTALLED_APPS = [

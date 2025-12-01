@@ -98,6 +98,9 @@ EMAIL_HOST_PASSWORD = env('EMAIL_HOST_PASSWORD', default='')
 DEFAULT_FROM_EMAIL = env('DEFAULT_FROM_EMAIL', default=EMAIL_HOST_USER)
 SERVER_EMAIL = env('SERVER_EMAIL', default=EMAIL_HOST_USER)
 
+# Frontend URL for password reset links
+FRONTEND_URL = env('FRONTEND_URL', default='http://localhost:3000')
+
 # Logging Configuration
 LOGS_DIR = BASE_DIR / 'logs'
 LOGS_DIR.mkdir(exist_ok=True)
