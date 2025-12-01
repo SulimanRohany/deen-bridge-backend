@@ -99,10 +99,10 @@ class StaffProfile(BaseProfile):
 
 
 class StudentParentProfile(models.Model):
-    user = models.OneToOneField(
+    user = models.ForeignKey(
         'accounts.CustomUser',
         on_delete=models.CASCADE,
-        related_name="%(class)s_profile",
+        related_name="student_parent_relationships",
         limit_choices_to={'role': RoleChoices.PARENT}
     )
     student = models.ForeignKey(StudentProfile, on_delete=models.CASCADE, related_name='student_parent_profiles')
@@ -114,3 +114,8 @@ class StudentParentProfile(models.Model):
     
     class Meta:
         unique_together = ("student", "user")
+        verbose_name = 'Student Parent Relationship'
+        verbose_name_plural = 'Student Parent Relationships'
+    
+    def __str__(self):
+        return f'{self.user.full_name} - {self.student.user.full_name} ({self.relationship})'

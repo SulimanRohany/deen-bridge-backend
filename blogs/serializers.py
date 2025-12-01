@@ -12,10 +12,18 @@ class PostSerializer(serializers.ModelSerializer):
     published_at = serializers.DateTimeField(read_only=True)
     excerpt = serializers.CharField(read_only=True)
     comments_count = serializers.IntegerField(read_only=True)
+    likes_count = serializers.IntegerField(read_only=True)
+    is_liked = serializers.SerializerMethodField()
 
     class Meta:
         model = Post
         fields = "__all__"
+    
+    def get_is_liked(self, obj):
+        request = self.context.get('request')
+        if request and hasattr(request, 'user') and request.user.is_authenticated:
+            return obj.is_liked_by_user(request.user)
+        return False
     
     def validate(self, validated_data):
 
@@ -32,11 +40,13 @@ class CommentSerializer(serializers.ModelSerializer):
     author_data = CustomUserSerializer(source='author', read_only=True)
     post_title = serializers.CharField(source='post.title', read_only=True)
     replies = serializers.SerializerMethodField()
+    likes_count = serializers.IntegerField(read_only=True)
+    is_liked = serializers.SerializerMethodField()
     
     class Meta:
         model = Comment
-        fields = ['id', 'post', 'author', 'author_data', 'post_title', 'parent', 'body', 'created_at', 'updated_at', 'replies']
-        read_only_fields = ['id', 'created_at', 'updated_at', 'author_data', 'post_title', 'replies']
+        fields = ['id', 'post', 'author', 'author_data', 'post_title', 'parent', 'body', 'created_at', 'updated_at', 'replies', 'likes_count', 'is_liked']
+        read_only_fields = ['id', 'created_at', 'updated_at', 'author_data', 'post_title', 'replies', 'likes_count', 'is_liked']
     
     def get_replies(self, obj):
         # Only include replies for top-level comments to avoid infinite recursion
@@ -44,6 +54,12 @@ class CommentSerializer(serializers.ModelSerializer):
             replies = obj.replies.all()
             return CommentSerializer(replies, many=True, context=self.context).data
         return []
+    
+    def get_is_liked(self, obj):
+        request = self.context.get('request')
+        if request and hasattr(request, 'user') and request.user.is_authenticated:
+            return obj.is_liked_by_user(request.user)
+        return False
     
     def create(self, validated_data):
         # Set the author to the current user
