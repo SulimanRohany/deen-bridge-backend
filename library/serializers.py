@@ -297,9 +297,9 @@ class LibraryResourceDetailSerializer(TaggitSerializer, serializers.ModelSeriali
     def validate_cover_image(self, value):
         """Validate cover image file"""
         if value:
-            # Check file size (max 5MB)
-            if value.size > 5 * 1024 * 1024:
-                raise serializers.ValidationError('Cover image must be less than 5MB.')
+            # Check file size (max 10MB)
+            if value.size > 10 * 1024 * 1024:
+                raise serializers.ValidationError('Cover image must be less than 10MB.')
             # Check file type
             if not value.content_type.startswith('image/'):
                 raise serializers.ValidationError('File must be an image.')
@@ -308,9 +308,9 @@ class LibraryResourceDetailSerializer(TaggitSerializer, serializers.ModelSeriali
     def validate_pdf_file(self, value):
         """Validate PDF file"""
         if value:
-            # Check file size (max 50MB)
-            if value.size > 50 * 1024 * 1024:
-                raise serializers.ValidationError('PDF file must be less than 50MB.')
+            # Check file size (max 100MB)
+            if value.size > 100 * 1024 * 1024:
+                raise serializers.ValidationError('PDF file must be less than 100MB.')
             # Check file type
             if value.content_type != 'application/pdf':
                 raise serializers.ValidationError('File must be a PDF.')

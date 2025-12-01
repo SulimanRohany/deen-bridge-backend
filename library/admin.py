@@ -104,9 +104,9 @@ class LibraryResourceAdminForm(forms.ModelForm):
             self.fields['pdf_file'].required = False
         # Add helpful text
         if 'pdf_file' in self.fields:
-            self.fields['pdf_file'].help_text = 'Upload PDF file (max 50MB). Users can only download books that have PDF files.'
+            self.fields['pdf_file'].help_text = 'Upload PDF file (max 100MB). Users can only download books that have PDF files.'
         if 'cover_image' in self.fields:
-            self.fields['cover_image'].help_text = 'Upload cover image (max 5MB). Recommended size: 300x450px.'
+            self.fields['cover_image'].help_text = 'Upload cover image (max 10MB). Recommended size: 300x450px.'
     
     def clean_tags(self):
         """Clean and validate tags input"""
