@@ -212,3 +212,73 @@ class EmailVerificationToken(models.Model):
             token=token,
             expires_at=expires_at
         )
+
+
+class EmailVerificationAttempt(models.Model):
+    """Model to track email verification attempts for security purposes"""
+    email = models.EmailField(db_index=True)
+    attempt_count = models.IntegerField(default=0)
+    first_attempt_at = models.DateTimeField(auto_now_add=True)
+    last_attempt_at = models.DateTimeField(auto_now=True)
+    locked_until = models.DateTimeField(null=True, blank=True)
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    
+    class Meta:
+        db_table = 'email_verification_attempts'
+        indexes = [
+            models.Index(fields=['email']),
+            models.Index(fields=['locked_until']),
+        ]
+    
+    def __str__(self):
+        return f"Verification attempts for {self.email} - Count: {self.attempt_count}"
+    
+    def is_locked(self):
+        """Check if this email is currently locked due to too many attempts"""
+        if self.locked_until and timezone.now() < self.locked_until:
+            return True
+        return False
+    
+    def increment_attempts(self, ip_address=None):
+        """Increment attempt count and lock if necessary"""
+        self.attempt_count += 1
+        if ip_address:
+            self.ip_address = ip_address
+        
+        # Lock for 1 hour after 5 failed attempts
+        if self.attempt_count >= 5:
+            self.locked_until = timezone.now() + timedelta(hours=1)
+        
+        self.save()
+    
+    def reset_attempts(self):
+        """Reset attempt count after successful verification"""
+        self.attempt_count = 0
+        self.locked_until = None
+        self.save()
+    
+    @classmethod
+    def cleanup_old_attempts(cls):
+        """Clean up attempts older than 24 hours"""
+        cutoff_time = timezone.now() - timedelta(hours=24)
+        cls.objects.filter(
+            first_attempt_at__lt=cutoff_time,
+            locked_until__isnull=True
+        ).delete()
+        
+        # Also clean up expired locks
+        cls.objects.filter(
+            locked_until__lt=timezone.now()
+        ).update(locked_until=None, attempt_count=0)
+    
+    @classmethod
+    def get_or_create_for_email(cls, email, ip_address=None):
+        """Get or create an attempt record for an email"""
+        # First cleanup old attempts
+        cls.cleanup_old_attempts()
+        
+        attempt, created = cls.objects.get_or_create(
+            email=email.lower(),
+            defaults={'ip_address': ip_address}
+        )
+        return attempt

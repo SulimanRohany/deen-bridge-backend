@@ -135,8 +135,18 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         user = self.user
         if not user.email_verified and not user.is_superuser:
             from rest_framework.exceptions import ValidationError
+            from django.core.cache import cache
+            
+            # Check if user can resend verification (not rate-limited)
+            cache_key = f'resend_verification_{user.email}'
+            request_count = cache.get(cache_key, 0)
+            can_resend = request_count < 3
+            
             raise ValidationError({
-                'email_verified': 'Your email address has not been verified. Please check your email for a verification link.'
+                'email_verified': 'Your email address has not been verified. Please check your email for a verification link.',
+                'user_email': user.email,
+                'verification_required': True,
+                'can_resend': can_resend
             })
 
         # Add user data to the access token payload
@@ -340,6 +350,9 @@ class EmailVerificationSerializer(serializers.Serializer):
 
     def validate_token(self, value):
         """Validate token format and existence"""
+        import logging
+        logger = logging.getLogger(__name__)
+        
         if not value or len(value) < 20:
             raise serializers.ValidationError("Invalid token format.")
         
@@ -347,23 +360,49 @@ class EmailVerificationSerializer(serializers.Serializer):
         try:
             verification_token = EmailVerificationToken.objects.get(token=value)
         except EmailVerificationToken.DoesNotExist:
+            logger.warning(f"Verification attempt with non-existent token: {value[:10]}...")
             raise serializers.ValidationError("Invalid or expired verification token.")
+        
+        user = verification_token.user
+        
+        # Check for verification attempt locks
+        from .models import EmailVerificationAttempt
+        attempt_record = EmailVerificationAttempt.get_or_create_for_email(
+            user.email,
+            ip_address=self.context.get('ip_address')
+        )
+        
+        # Check if email is locked
+        if attempt_record.is_locked():
+            logger.warning(f"Verification attempt for locked email: {user.email}")
+            raise serializers.ValidationError(
+                "Too many verification attempts. Please try again later."
+            )
         
         # Check if token is valid
         if not verification_token.is_valid():
+            # Increment failed attempts
+            attempt_record.increment_attempts(self.context.get('ip_address'))
+            logger.warning(f"Failed verification attempt for {user.email} - Invalid/expired token")
             raise serializers.ValidationError("Invalid or expired verification token.")
         
-        # Store token instance for use in save method
+        # Store token instance and attempt record for use in save method
         self.verification_token = verification_token
+        self.attempt_record = attempt_record
         return value
 
     def save(self):
         """Verify user email and mark token as used"""
+        import logging
+        logger = logging.getLogger(__name__)
+        
         verification_token = self.verification_token
         user = verification_token.user
+        attempt_record = self.attempt_record
         
         # Check if already verified
         if user.email_verified:
+            logger.info(f"Email already verified for {user.email}")
             return {
                 'message': 'Email address is already verified.',
                 'email_verified': True
@@ -375,6 +414,11 @@ class EmailVerificationSerializer(serializers.Serializer):
         
         # Mark token as used
         verification_token.mark_as_used()
+        
+        # Reset attempt count on successful verification
+        attempt_record.reset_attempts()
+        
+        logger.info(f"Email successfully verified for {user.email} from IP {self.context.get('ip_address')}")
         
         return {
             'message': 'Email address has been successfully verified.',
@@ -393,8 +437,24 @@ class ResendVerificationSerializer(serializers.Serializer):
     def validate(self, attrs):
         """Check rate limiting and validate user exists"""
         from django.core.cache import cache
+        from .models import EmailVerificationAttempt
+        import logging
+        logger = logging.getLogger(__name__)
         
         email = attrs.get('email')
+        
+        # Check for verification attempt locks
+        attempt_record = EmailVerificationAttempt.get_or_create_for_email(
+            email,
+            ip_address=self.context.get('ip_address')
+        )
+        
+        if attempt_record.is_locked():
+            logger.warning(f"Resend verification attempt for locked email: {email}")
+            time_remaining = (attempt_record.locked_until - timezone.now()).total_seconds() / 60
+            raise serializers.ValidationError({
+                'email': f'Too many verification attempts. Account locked. Please try again in {int(time_remaining)} minutes.'
+            })
         
         # Rate limiting: max 3 requests per hour per email
         cache_key = f'resend_verification_{email}'
@@ -403,8 +463,10 @@ class ResendVerificationSerializer(serializers.Serializer):
         rate_limit_window = 3600  # 1 hour in seconds
         
         if request_count >= max_requests:
+            logger.warning(f"Rate limit exceeded for resend verification: {email}")
             raise serializers.ValidationError({
-                'email': f'Too many verification email requests. Please wait before requesting another email.'
+                'email': f'Too many verification email requests. Please wait before requesting another email.',
+                'rate_limited': True
             })
         
         # Store request count in cache
@@ -426,12 +488,16 @@ class ResendVerificationSerializer(serializers.Serializer):
 
     def save(self):
         """Generate new token and send verification email"""
+        import logging
+        logger = logging.getLogger(__name__)
+        
         email = self.validated_data['email']
         
         try:
             user = getattr(self, 'user', None)
             if not user:
                 # User doesn't exist - but don't reveal this
+                logger.info(f"Resend verification requested for non-existent email: {email}")
                 return {
                     'message': 'If an account with this email exists and is not verified, a verification email has been sent.'
                 }
@@ -439,6 +505,7 @@ class ResendVerificationSerializer(serializers.Serializer):
             # Check if already verified
             if user.email_verified:
                 # Don't reveal this - return generic message
+                logger.info(f"Resend verification requested for already verified email: {email}")
                 return {
                     'message': 'If an account with this email exists and is not verified, a verification email has been sent.'
                 }
@@ -456,10 +523,10 @@ class ResendVerificationSerializer(serializers.Serializer):
             from .utils import send_email_verification
             send_email_verification(user, verification_token.token)
             
+            logger.info(f"Verification email resent to {email} from IP {self.context.get('ip_address')}")
+            
         except Exception as e:
             # Log error but don't reveal details
-            import logging
-            logger = logging.getLogger(__name__)
             logger.error(f"Failed to resend verification email to {email}: {str(e)}")
             # Don't raise - always return success to prevent enumeration
         
