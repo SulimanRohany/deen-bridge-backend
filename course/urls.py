@@ -14,6 +14,10 @@ from .views import (
     SessionJoinView,
     SessionLeaveView,
     SessionMonitorView,
+    SessionStartRecordingView,
+    SessionStopRecordingView,
+    SessionRecordingStatusView,
+    RecordingUploadView,
     TimetableListView,
     SessionEnrolledStudentsView,
     SessionEnrollmentsView,
@@ -36,6 +40,7 @@ urlpatterns = [
     # Recording endpoints
     path('recording/', RecordingListCreateView.as_view(), name='recording_list_create_view'),
     path('recording/<int:pk>/', RecordingRetrieveUpdateDestroyView.as_view(), name='recording_retrieve_update_destroy_view'),
+    path('recording/upload/', RecordingUploadView.as_view(), name='recording_upload_view'),
     
     # Attendance endpoints
     path('attendance/', AttendanceListCreateView.as_view(), name='attendance_list_create_view'),
@@ -49,6 +54,11 @@ urlpatterns = [
     path('session/<int:session_id>/join/', SessionJoinView.as_view(), name='session_join_view'),
     path('session/<int:session_id>/leave/', SessionLeaveView.as_view(), name='session_leave_view'),
     path('session/<int:session_id>/monitor/', SessionMonitorView.as_view(), name='session_monitor_view'),
+    
+    # Recording endpoints
+    path('session/<int:session_id>/start-recording/', SessionStartRecordingView.as_view(), name='session_start_recording'),
+    path('session/<int:session_id>/stop-recording/', SessionStopRecordingView.as_view(), name='session_stop_recording'),
+    path('session/<int:session_id>/recording-status/', SessionRecordingStatusView.as_view(), name='session_recording_status'),
     
     # Session students/enrollments endpoints
     path('session/<int:session_id>/students/', SessionEnrolledStudentsView.as_view(), name='session_enrolled_students'),

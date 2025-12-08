@@ -3,6 +3,7 @@ from rest_framework import serializers
 from .models import TeacherProfile, StudentProfile, StudentParentProfile, SuperAdminProfile, StaffProfile
 
 from core.image_compressor import compress_image_file
+from django.conf import settings
 
 
 
@@ -11,7 +12,18 @@ class BaseProfileSerializer(serializers.ModelSerializer):
     def compress_image(self, validated_data):
         profile_image = validated_data.get('profile_image')
         if profile_image:
-            validated_data['profile_image'] = compress_image_file(profile_image, quality=30)
+            try:
+                validated_data['profile_image'] = compress_image_file(
+                    profile_image,
+                    quality=settings.IMAGE_COMPRESSION_QUALITY,
+                    max_width=settings.IMAGE_COMPRESSION_MAX_WIDTH,
+                    max_height=settings.IMAGE_COMPRESSION_MAX_HEIGHT
+                )
+            except Exception as e:
+                # Log error but don't fail validation - use original image
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.warning(f"Failed to compress profile image: {str(e)}")
         
         return validated_data
     

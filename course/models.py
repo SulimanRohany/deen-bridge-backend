@@ -132,6 +132,11 @@ class LiveSession(models.Model):
     recording_url = models.URLField(blank=True)
     recording_available = models.BooleanField(default=True)
 
+    # Recording state fields
+    is_recording = models.BooleanField(default=False, help_text='Whether recording is currently active')
+    recording_started_at = models.DateTimeField(null=True, blank=True, help_text='When recording started')
+    recording_file = models.FileField(upload_to='recordings/%Y/%m/%d/', blank=True, null=True, help_text='The recording file')
+
     status = models.CharField(max_length=25, choices=SessionStatus.choices, default='scheduled')
     
     reminder_sent = models.BooleanField(default=False, help_text='Whether 15-minute reminder has been sent')

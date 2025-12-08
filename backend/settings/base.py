@@ -19,7 +19,7 @@ env = environ.Env(
     CORS_ALLOWED_ORIGINS=(list, []),
     FRONTEND_URL=(str, 'http://localhost:3000'),
     EMAIL_BACKEND=(str, 'django.core.mail.backends.smtp.EmailBackend'),
-    EMAIL_HOST=(str, 'smtp.gmail.com'),
+    EMAIL_HOST=(str, 'smtp-relay.brevo.com'),
     EMAIL_PORT=(int, 587),
     EMAIL_USE_TLS=(bool, True),
     EMAIL_HOST_USER=(str, ''),
@@ -195,6 +195,15 @@ FILE_UPLOAD_MAX_MEMORY_SIZE = 100 * 1024 * 1024  # 100MB
 DATA_UPLOAD_MAX_NUMBER_FIELDS = 10000
 # Maximum number of files in a multipart upload
 DATA_UPLOAD_MAX_NUMBER_FILES = 100
+
+# Image Compression Settings
+IMAGE_COMPRESSION_QUALITY = 85  # JPEG quality (1-100)
+IMAGE_COMPRESSION_QUALITY_PNG = 85  # PNG compression quality (1-100, converted to compress_level 0-9)
+IMAGE_COMPRESSION_QUALITY_WEBP = 85  # WebP quality (1-100)
+IMAGE_COMPRESSION_MAX_WIDTH = 1920  # Maximum width in pixels
+IMAGE_COMPRESSION_MAX_HEIGHT = 1920  # Maximum height in pixels
+IMAGE_COMPRESSION_PRESERVE_TRANSPARENCY = True  # Preserve transparency when possible
+IMAGE_COMPRESSION_FORMAT = 'AUTO'  # 'AUTO', 'JPEG', 'PNG', 'WEBP'
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
