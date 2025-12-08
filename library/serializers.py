@@ -6,6 +6,8 @@ from .models import (
 )
 from subjects.serializers import SubjectSerializer
 from accounts.models import CustomUser
+from core.image_compressor import compress_image_file
+from django.conf import settings
 
 
 class LibraryCategorySerializer(serializers.ModelSerializer):
@@ -295,7 +297,7 @@ class LibraryResourceDetailSerializer(TaggitSerializer, serializers.ModelSeriali
         return breakdown
     
     def validate_cover_image(self, value):
-        """Validate cover image file"""
+        """Validate and compress cover image file"""
         if value:
             # Check file size (max 10MB)
             if value.size > 10 * 1024 * 1024:
@@ -303,6 +305,19 @@ class LibraryResourceDetailSerializer(TaggitSerializer, serializers.ModelSeriali
             # Check file type
             if not value.content_type.startswith('image/'):
                 raise serializers.ValidationError('File must be an image.')
+            # Compress the image
+            try:
+                value = compress_image_file(
+                    value,
+                    quality=settings.IMAGE_COMPRESSION_QUALITY,
+                    max_width=settings.IMAGE_COMPRESSION_MAX_WIDTH,
+                    max_height=settings.IMAGE_COMPRESSION_MAX_HEIGHT
+                )
+            except Exception as e:
+                # Log error but don't fail validation - use original image
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.warning(f"Failed to compress cover image: {str(e)}")
         return value
     
     def validate_pdf_file(self, value):
@@ -338,6 +353,19 @@ class LibraryResourceDetailSerializer(TaggitSerializer, serializers.ModelSeriali
         if 'cover_image' in validated_data:
             cover_image = validated_data.pop('cover_image')
             if cover_image is not None:
+                # Compress the image if not already compressed in validate_cover_image
+                # (This handles cases where update bypasses validation)
+                try:
+                    cover_image = compress_image_file(
+                        cover_image,
+                        quality=settings.IMAGE_COMPRESSION_QUALITY,
+                        max_width=settings.IMAGE_COMPRESSION_MAX_WIDTH,
+                        max_height=settings.IMAGE_COMPRESSION_MAX_HEIGHT
+                    )
+                except Exception as e:
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.warning(f"Failed to compress cover image in update: {str(e)}")
                 # Delete old cover image if exists
                 if instance.cover_image:
                     instance.cover_image.delete(save=False)

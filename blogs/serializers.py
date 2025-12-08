@@ -3,6 +3,7 @@ from rest_framework import serializers
 from .models import Post, Comment
 
 from core.image_compressor import compress_image_file
+from django.conf import settings
 
 from accounts.serializers import CustomUserSerializer
 
@@ -26,10 +27,19 @@ class PostSerializer(serializers.ModelSerializer):
         return False
     
     def validate(self, validated_data):
-
-        if 'featured_image' in validated_data:
-            compressed_image = compress_image_file(validated_data['featured_image'], quality=30)
-            validated_data['featured_image'] = compressed_image
+        if 'featured_image' in validated_data and validated_data.get('featured_image'):
+            try:
+                validated_data['featured_image'] = compress_image_file(
+                    validated_data['featured_image'],
+                    quality=settings.IMAGE_COMPRESSION_QUALITY,
+                    max_width=settings.IMAGE_COMPRESSION_MAX_WIDTH,
+                    max_height=settings.IMAGE_COMPRESSION_MAX_HEIGHT
+                )
+            except Exception as e:
+                # Log error but don't fail validation - use original image
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.warning(f"Failed to compress featured image: {str(e)}")
 
         instance = Post(**validated_data)
         instance.clean()

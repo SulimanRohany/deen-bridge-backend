@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import logging
+import requests
 
 from rest_framework.generics import ListCreateAPIView, RetrieveUpdateDestroyAPIView, ListAPIView
 from rest_framework.views import APIView
@@ -14,6 +15,7 @@ from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from django.shortcuts import get_object_or_404
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
+from django.utils import timezone
 
 
 from django_filters.rest_framework import DjangoFilterBackend
@@ -437,6 +439,214 @@ class SessionMonitorView(APIView):
         })
 
 
+class SessionStartRecordingView(APIView):
+    """Start recording for a live session (teacher only)."""
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request, session_id):
+        """Start recording for a live session."""
+        logger.info(f'Start recording request received for session_id: {session_id}, user: {request.user.id}')
+        try:
+            session = get_object_or_404(LiveSession, id=session_id)
+            
+            # Check if user is a teacher of the class or super admin
+            is_teacher = session.class_session.teacher.filter(id=request.user.id).exists()
+            is_admin = request.user.is_superuser or request.user.role == RoleChoices.SUPER_ADMIN
+            
+            if not (is_teacher or is_admin):
+                return Response(
+                    {'error': 'Only teachers and administrators can start recording'}, 
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            
+            # Check if session is live
+            if session.status != 'live':
+                return Response(
+                    {'error': 'Can only start recording for live sessions'}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Check if already recording
+            if session.is_recording:
+                return Response(
+                    {'error': 'Recording is already in progress'}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Call SFU backend to start recording
+            sfu_base_url = os.environ.get('SFU_BASE_URL', 'http://localhost:3001')
+            room_id = str(session.id)  # Use session ID as room ID
+            
+            try:
+                response = requests.post(
+                    f'{sfu_base_url}/api/rooms/{room_id}/recording/start',
+                    json={
+                        'sessionId': session.id,
+                        'startedBy': request.user.id
+                    },
+                    timeout=10
+                )
+                
+                if response.status_code == 200:
+                    # Update session state (will be confirmed by webhook)
+                    session.is_recording = True
+                    session.recording_started_at = timezone.now()
+                    session.save(update_fields=['is_recording', 'recording_started_at'])
+                    
+                    return Response({
+                        'success': True,
+                        'message': 'Recording started',
+                        'session_id': session.id,
+                        'is_recording': True,
+                        'recording_started_at': session.recording_started_at.isoformat()
+                    }, status=status.HTTP_200_OK)
+                else:
+                    error_data = response.json() if response.headers.get('content-type', '').startswith('application/json') else {}
+                    return Response(
+                        {'error': error_data.get('error', 'Failed to start recording on SFU server')}, 
+                        status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                    )
+            except requests.exceptions.ConnectionError as e:
+                logger.error(f'Error connecting to SFU server at {sfu_base_url}: {e}', exc_info=True)
+                return Response(
+                    {
+                        'error': 'Failed to connect to SFU server. Please ensure the SFU backend is running.',
+                        'details': f'Connection refused to {sfu_base_url}. Make sure the SFU backend server is started.'
+                    }, 
+                    status=status.HTTP_503_SERVICE_UNAVAILABLE
+                )
+            except requests.exceptions.RequestException as e:
+                logger.error(f'Error starting recording: {e}', exc_info=True)
+                return Response(
+                    {'error': 'Failed to connect to SFU server. Please check if the SFU backend is running.'}, 
+                    status=status.HTTP_503_SERVICE_UNAVAILABLE
+                )
+        except Exception as e:
+            logger.error(f'Unexpected error in start recording: {e}', exc_info=True)
+            return Response(
+                {'error': f'An unexpected error occurred: {str(e)}'}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class SessionStopRecordingView(APIView):
+    """Stop recording for a live session (teacher only)."""
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request, session_id):
+        """Stop recording for a live session."""
+        logger.info(f'Stop recording request received for session_id: {session_id}, user: {request.user.id}')
+        try:
+            session = get_object_or_404(LiveSession, id=session_id)
+            
+            # Check if user is a teacher of the class or super admin
+            is_teacher = session.class_session.teacher.filter(id=request.user.id).exists()
+            is_admin = request.user.is_superuser or request.user.role == RoleChoices.SUPER_ADMIN
+            
+            if not (is_teacher or is_admin):
+                return Response(
+                    {'error': 'Only teachers and administrators can stop recording'}, 
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            
+            # Note: We don't check session.is_recording here because the SFU backend
+            # is the source of truth. It will handle the case where no recording is active.
+            # This allows stopping even if there's a state sync issue.
+            
+            # Call SFU backend to stop recording
+            sfu_base_url = os.environ.get('SFU_BASE_URL', 'http://localhost:3001')
+            room_id = str(session.id)  # Use session ID as room ID
+            
+            logger.info(f'Attempting to stop recording on SFU backend: {sfu_base_url}/api/rooms/{room_id}/recording/stop')
+            
+            try:
+                response = requests.post(
+                    f'{sfu_base_url}/api/rooms/{room_id}/recording/stop',
+                    json={
+                        'sessionId': session.id,
+                        'stoppedBy': request.user.id
+                    },
+                    timeout=30  # Longer timeout for file processing
+                )
+                
+                logger.info(f'SFU backend response status: {response.status_code}')
+                
+                if response.status_code == 200:
+                    response_data = response.json()
+                    logger.info(f'Recording stopped successfully: {response_data}')
+                    
+                    # Update session state immediately to reflect UI changes
+                    session.is_recording = False
+                    session.save(update_fields=['is_recording'])
+                    
+                    # State will be further updated/confirmed by webhook when recording file is received
+                    return Response({
+                        'success': True,
+                        'message': 'Recording stopped. Processing file...',
+                        'session_id': session.id,
+                        'duration': response_data.get('duration'),
+                        'fileUrl': response_data.get('fileUrl')
+                    }, status=status.HTTP_200_OK)
+                else:
+                    error_data = response.json() if response.headers.get('content-type', '').startswith('application/json') else {}
+                    error_msg = error_data.get('error') or error_data.get('message') or 'Failed to stop recording on SFU server'
+                    logger.error(f'SFU backend error: {response.status_code} - {error_msg}')
+                    return Response(
+                        {'error': error_msg}, 
+                        status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                    )
+            except requests.exceptions.ConnectionError as e:
+                logger.error(f'Error connecting to SFU server at {sfu_base_url}: {e}', exc_info=True)
+                return Response(
+                    {
+                        'error': 'Failed to connect to SFU server. Please ensure the SFU backend is running.',
+                        'details': f'Connection refused to {sfu_base_url}. Make sure the SFU backend server is started.'
+                    }, 
+                    status=status.HTTP_503_SERVICE_UNAVAILABLE
+                )
+            except requests.exceptions.RequestException as e:
+                logger.error(f'Error stopping recording: {e}', exc_info=True)
+                return Response(
+                    {'error': 'Failed to connect to SFU server. Please check if the SFU backend is running.'}, 
+                    status=status.HTTP_503_SERVICE_UNAVAILABLE
+                )
+        except Exception as e:
+            logger.error(f'Unexpected error in stop recording: {e}', exc_info=True)
+            return Response(
+                {'error': f'An unexpected error occurred: {str(e)}'}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class SessionRecordingStatusView(APIView):
+    """Get recording status for a live session."""
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request, session_id):
+        """Get current recording status."""
+        session = get_object_or_404(LiveSession, id=session_id)
+        
+        # Check if user can view this session
+        if not session.can_user_join(request.user):
+            return Response(
+                {'error': 'You do not have access to this session'}, 
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        recording_duration = None
+        if session.is_recording and session.recording_started_at:
+            duration = timezone.now() - session.recording_started_at
+            recording_duration = int(duration.total_seconds())
+        
+        return Response({
+            'is_recording': session.is_recording,
+            'recording_started_at': session.recording_started_at.isoformat() if session.recording_started_at else None,
+            'recording_duration': recording_duration,
+            'recording_file': session.recording_file.url if session.recording_file else None,
+            'recording_available': session.recording_available
+        }, status=status.HTTP_200_OK)
+
+
 @method_decorator(csrf_exempt, name='dispatch')
 class SFUWebhookView(APIView):
     """Receive webhooks from SFU backend.
@@ -585,8 +795,34 @@ class SFUWebhookView(APIView):
         room_id = data.get('roomId')
         recording_id = data.get('recordingId')
         started_at = data.get('startedAt')
+        session_id = data.get('sessionId')
         
-        logger.info(f'Recording started: room={room_id}, recording={recording_id}, started_at={started_at}')
+        logger.info(f'Recording started: room={room_id}, recording={recording_id}, session={session_id}, started_at={started_at}')
+        
+        # Update LiveSession recording state
+        try:
+            # room_id is the session ID (string)
+            session_id_int = int(room_id) if room_id else None
+            if session_id:
+                session_id_int = int(session_id)
+            
+            if session_id_int:
+                session = LiveSession.objects.filter(id=session_id_int).first()
+                if session:
+                    session.is_recording = True
+                    if started_at:
+                        from datetime import datetime
+                        try:
+                            # Parse ISO format datetime
+                            session.recording_started_at = datetime.fromisoformat(started_at.replace('Z', '+00:00'))
+                        except:
+                            session.recording_started_at = timezone.now()
+                    else:
+                        session.recording_started_at = timezone.now()
+                    session.save(update_fields=['is_recording', 'recording_started_at'])
+                    logger.info(f'Updated session {session_id_int} recording state to active')
+        except Exception as e:
+            logger.error(f'Error updating recording state: {e}', exc_info=True)
     
     def handle_recording_stopped(self, data):
         """Handle recording.stopped event."""
@@ -594,8 +830,87 @@ class SFUWebhookView(APIView):
         recording_id = data.get('recordingId')
         stopped_at = data.get('stoppedAt')
         duration = data.get('duration')
+        session_id = data.get('sessionId')
+        file_url = data.get('fileUrl')  # URL to download the file from SFU
+        file_path = data.get('filePath')  # Local path if file is uploaded directly
         
-        logger.info(f'Recording stopped: room={room_id}, recording={recording_id}, stopped_at={stopped_at}, duration={duration}')
+        logger.info(f'Recording stopped: room={room_id}, recording={recording_id}, session={session_id}, stopped_at={stopped_at}, duration={duration}')
+        
+        try:
+            # Get session ID
+            session_id_int = int(room_id) if room_id else None
+            if session_id:
+                try:
+                    session_id_int = int(session_id)
+                except (ValueError, TypeError):
+                    pass
+            
+            if not session_id_int:
+                logger.error('No session ID provided in recording.stopped webhook')
+                return
+            
+            session = LiveSession.objects.filter(id=session_id_int).first()
+            if not session:
+                logger.error(f'Session {session_id_int} not found')
+                return
+            
+            # Update recording state
+            session.is_recording = False
+            session.save(update_fields=['is_recording'])
+            
+            # If file URL is provided, download and save the file
+            # Note: File should already be uploaded via RecordingUploadView, but we can handle URL as fallback
+            if file_url and not session.recording_file:
+                try:
+                    # Download file from SFU backend
+                    response = requests.get(file_url, timeout=300, stream=True)  # 5 minute timeout for large files
+                    if response.status_code == 200:
+                        from django.core.files.base import ContentFile
+                        
+                        # Generate filename
+                        filename = f'session_{session_id_int}_{recording_id or timezone.now().strftime("%Y%m%d_%H%M%S")}.webm'
+                        
+                        # Save file
+                        file_content = ContentFile(response.content)
+                        session.recording_file.save(filename, file_content, save=True)
+                        
+                        logger.info(f'Saved recording file for session {session_id_int}: {session.recording_file.name}')
+                    else:
+                        logger.error(f'Failed to download recording file: HTTP {response.status_code}')
+                except Exception as e:
+                    logger.error(f'Error downloading recording file: {e}', exc_info=True)
+            
+            # Create Recording object only if we have a file
+            if session.recording_file:
+                recording_title = f'{session.title} - Recording'
+                if stopped_at:
+                    from datetime import datetime
+                    try:
+                        stop_time = datetime.fromisoformat(stopped_at.replace('Z', '+00:00'))
+                        recording_title = f'{session.title} - {stop_time.strftime("%Y-%m-%d %H:%M")}'
+                    except:
+                        pass
+                
+                # Check if recording already exists for this session
+                existing_recording = Recording.objects.filter(session=session).order_by('-created_at').first()
+                if existing_recording and not existing_recording.video_url:
+                    # Update existing recording
+                    existing_recording.video_url = session.recording_file.url
+                    existing_recording.title = recording_title
+                    existing_recording.save()
+                    logger.info(f'Updated Recording object {existing_recording.id} for session {session_id_int}')
+                else:
+                    # Create new recording
+                    recording = Recording.objects.create(
+                        session=session,
+                        title=recording_title,
+                        description=f'Recording of live session: {session.title}',
+                        video_url=session.recording_file.url
+                    )
+                    logger.info(f'Created Recording object {recording.id} for session {session_id_int}')
+            
+        except Exception as e:
+            logger.error(f'Error handling recording stopped: {e}', exc_info=True)
 
 
 class TimetableListView(ListAPIView):
@@ -827,3 +1142,89 @@ class LiveSessionResourceRetrieveUpdateDestroyView(RetrieveUpdateDestroyAPIView)
             raise PermissionDenied("You don't have permission to delete this resource.")
         
         instance.delete()
+
+
+@method_decorator(csrf_exempt, name='dispatch')
+class RecordingUploadView(APIView):
+    """Receive recording file uploads from SFU backend."""
+    permission_classes = []  # No auth required - webhook secret validation instead
+    throttle_classes = []  # Exempt from rate limiting - called by SFU backend
+    parser_classes = [MultiPartParser, FormParser]
+    
+    def post(self, request):
+        """Handle recording file upload from SFU backend."""
+        # Verify webhook secret
+        secret = request.headers.get('X-Webhook-Secret', '')
+        expected_secret = os.environ.get('SFU_WEBHOOK_SECRET', '')
+        
+        if not expected_secret or secret != expected_secret:
+            logger.warning('Invalid webhook secret for recording upload')
+            return Response(
+                {'error': 'Invalid webhook secret'}, 
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        try:
+            # Get file and metadata
+            recording_file = request.FILES.get('file')
+            room_id = request.data.get('roomId')
+            session_id = request.data.get('sessionId')
+            
+            if not recording_file:
+                return Response(
+                    {'error': 'No file provided'}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Check if file is empty
+            if recording_file.size == 0:
+                logger.warning(f'Empty recording file received for room {room_id}')
+                return Response(
+                    {'error': 'Recording file is empty'}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Check if file is too small to be a valid video (less than 1KB)
+            if recording_file.size < 1024:
+                logger.warning(f'Recording file too small ({recording_file.size} bytes) for room {room_id}')
+                # Still allow it, but log a warning
+            
+            if not room_id:
+                return Response(
+                    {'error': 'roomId is required'}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Get session
+            try:
+                session_id_int = int(session_id) if session_id else int(room_id)
+                session = LiveSession.objects.get(id=session_id_int)
+            except (LiveSession.DoesNotExist, ValueError):
+                logger.error(f'Session not found: {session_id_int}')
+                return Response(
+                    {'error': 'Session not found'}, 
+                    status=status.HTTP_404_NOT_FOUND
+                )
+            
+            # Save file to session
+            session.recording_file = recording_file
+            session.save(update_fields=['recording_file'])
+            
+            # Build file URL
+            file_url = request.build_absolute_uri(session.recording_file.url) if session.recording_file else None
+            
+            logger.info(f'Recording file uploaded for session {session_id_int}: {session.recording_file.name}')
+            
+            return Response({
+                'success': True,
+                'fileUrl': file_url,
+                'sessionId': session.id,
+                'message': 'Recording file uploaded successfully'
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            logger.error(f'Error uploading recording file: {e}', exc_info=True)
+            return Response(
+                {'error': 'Failed to upload recording file'}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )

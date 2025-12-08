@@ -9,6 +9,8 @@ from enrollments.models import ClassEnrollment
 
 from accounts.serializers import CustomUserSerializer
 from subjects.serializers import SubjectSerializer
+from core.image_compressor import compress_image_file
+from django.conf import settings
 
 
 class ClassSerializer(serializers.ModelSerializer):
@@ -66,7 +68,42 @@ class ClassSerializer(serializers.ModelSerializer):
             status=EnrollmentChoices.COMPLETED
         ).exists()
 
+    def validate_cover_image(self, value):
+        """Validate and compress cover image"""
+        if value:
+            # Check file type
+            if not value.content_type.startswith('image/'):
+                raise serializers.ValidationError('File must be an image.')
+            # Compress the image
+            try:
+                value = compress_image_file(
+                    value,
+                    quality=settings.IMAGE_COMPRESSION_QUALITY,
+                    max_width=settings.IMAGE_COMPRESSION_MAX_WIDTH,
+                    max_height=settings.IMAGE_COMPRESSION_MAX_HEIGHT
+                )
+            except Exception as e:
+                # Log error but don't fail validation - use original image
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.warning(f"Failed to compress cover image: {str(e)}")
+        return value
+    
     def validate(self, validated_data):
+        # Compress cover_image if present
+        if 'cover_image' in validated_data and validated_data.get('cover_image'):
+            try:
+                validated_data['cover_image'] = compress_image_file(
+                    validated_data['cover_image'],
+                    quality=settings.IMAGE_COMPRESSION_QUALITY,
+                    max_width=settings.IMAGE_COMPRESSION_MAX_WIDTH,
+                    max_height=settings.IMAGE_COMPRESSION_MAX_HEIGHT
+                )
+            except Exception as e:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.warning(f"Failed to compress cover image in validate: {str(e)}")
+        
         # Create a temporary instance for validation, excluding ManyToMany fields
         temp_data = validated_data.copy()
         temp_data.pop('teacher', None)
@@ -192,7 +229,7 @@ class LiveSessionSerializer(serializers.ModelSerializer):
     class Meta:
         model = LiveSession
         fields = "__all__"
-        read_only_fields = ['reminder_sent', 'created_at', 'updated_at']
+        read_only_fields = ['reminder_sent', 'created_at', 'updated_at', 'is_recording', 'recording_started_at', 'recording_file']
 
 
 class RecordingSerializer(serializers.ModelSerializer):
